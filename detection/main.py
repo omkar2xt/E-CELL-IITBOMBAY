@@ -160,6 +160,8 @@ def main():
             frame_display = visualizer.draw(frame, detections)
 
             # 3. Tampilkan
+            cv2.namedWindow(config.WINDOW_NAME, cv2.WINDOW_NORMAL)
+            cv2.moveWindow(config.WINDOW_NAME, 100, 100)  # posisi x=100, y=100 dari pojok kiri atas layar
             cv2.imshow(config.WINDOW_NAME, frame_display)
 
             # 4. Simpan ke file kalau --save aktif
