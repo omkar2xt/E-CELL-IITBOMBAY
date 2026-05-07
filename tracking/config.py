@@ -1,16 +1,16 @@
 # config.py - tracking module
 # ============================================================
-# Extend dari detection/config.py dengan tambahan
-# setting untuk tracking dan counting.
+# Extends detection/config.py with additional
+# settings for tracking and counting.
 # ============================================================
 
 import sys
 import os
 
-# Supaya bisa import dari folder detection/
+# To be able to import from detection/ folder
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-# ── Import semua config detection (re-use) ──
+# -- Import all detection configs (re-use) --
 from detection.config import (
     MODEL_NAME,
     CONFIDENCE_THRESHOLD,
@@ -27,61 +27,61 @@ from detection.config import (
     SAVE_OUTPUT,
 )
 
-# ── Override ──
+# -- Override --
 WINDOW_NAME = "Retail Analytics - Week 2: Tracking + Counting"
 OUTPUT_PATH = "output_week2.mp4"
 
-# ── ByteTrack settings ──
-# track_thresh: confidence minimum untuk langsung di-assign ke track aktif
-# Deteksi di bawah ini masuk "second association" (ByteTrack trick)
+# -- ByteTrack settings --
+# track_thresh: minimum confidence to directly assign to an active track
+# Detections below this fall into "second association" (ByteTrack trick)
 TRACK_THRESH = 0.4
 
-# match_thresh: minimum IoU untuk dianggap "orang yang sama"
+# match_thresh: minimum IoU to be considered "the same person"
 MATCH_THRESH = 0.8
 
-# track_buffer: berapa frame sebuah track "bertahan" tanpa deteksi
-# Sebelum dianggap hilang dan ID-nya dibuang
-# 30 frame = ~1 detik di 30fps. Naikan kalau orang sering hilang sesaat.
+# track_buffer: how many frames a track "survives" without detection
+# Before it's considered lost and its ID is discarded
+# 30 frames = ~1 second at 30fps. Increase if people often disappear briefly.
 TRACK_BUFFER = 30
 
-# frame_rate: FPS video input (dipakai Kalman untuk prediksi motion)
+# frame_rate: input video FPS (used by Kalman for motion prediction)
 FRAME_RATE = 30
 
-# ── Virtual Line Counting ──
-# Garis virtual untuk menghitung orang masuk/keluar.
-# Format: (x1, y1, x2, y2) dalam pixel
+# -- Virtual Line Counting --
+# Virtual line for counting people entering/exiting.
+# Format: (x1, y1, x2, y2) in pixels
 #
-# Cara menentukan posisi:
-# - Untuk pintu masuk horizontal: garis vertikal di tengah frame
+# How to determine position:
+# - For horizontal entrance: vertical line in the middle of the frame
 #   LINE_START = (frame_width // 2, 0)
 #   LINE_END   = (frame_width // 2, frame_height)
 #
-# - Untuk pintu masuk vertikal: garis horizontal di tengah frame
+# - For vertical entrance: horizontal line in the middle of the frame
 #   LINE_START = (0, frame_height // 2)
 #   LINE_END   = (frame_width, frame_height // 2)
 #
-# Default di bawah: garis vertikal di tengah frame 640px
-# Akan di-override otomatis di main.py berdasarkan resolusi video aktual
+# Default below: vertical line in the middle of a 640px frame
+# Will be automatically overridden in main.py based on actual video resolution
 LINE_START = (320, 0)
 LINE_END   = (320, 480)
 
-# Arah mana yang dihitung "masuk" vs "keluar"
-# "horizontal": orang bergerak kiri-kanan melewati garis vertikal
-#   - bergerak ke KANAN = masuk (IN)
-#   - bergerak ke KIRI  = keluar (OUT)
-# "vertical": orang bergerak atas-bawah melewati garis horizontal
-#   - bergerak ke BAWAH = masuk (IN)
-#   - bergerak ke ATAS  = keluar (OUT)
+# Which direction is counted as "in" vs "out"
+# "horizontal": people moving left-right crossing a vertical line
+#   - moving RIGHT = in (IN)
+#   - moving LEFT  = out (OUT)
+# "vertical": people moving up-down crossing a horizontal line
+#   - moving DOWN = in (IN)
+#   - moving UP   = out (OUT)
 LINE_ORIENTATION = "horizontal"
 
-# Lebar "dead zone" di sekitar garis (pixel)
-# Orang harus benar-benar melewati garis (bukan cuma menyentuhnya)
-# sebelum crossing dihitung. Cegah false count.
+# Width of "dead zone" around the line (pixels)
+# A person must completely cross the line (not just touch it)
+# before the crossing is counted. Prevents false counts.
 LINE_CROSSING_TOLERANCE = 5
 
-# ── Warna tambahan untuk tracking ──
-TRACK_ID_COLOR    = (255, 220, 50)   # Kuning untuk Track ID label
-LINE_COLOR        = (0, 200, 255)    # Cyan untuk virtual line
-LINE_COLOR_ALERT  = (0, 60, 255)     # Merah kalau ada crossing event
-TRAJECTORY_COLOR  = (180, 180, 180)  # Abu untuk jejak pergerakan
-TRAJECTORY_LENGTH = 30               # Berapa frame terakhir jejak ditampilkan
+# -- Additional colors for tracking --
+TRACK_ID_COLOR    = (255, 220, 50)   # Yellow for Track ID label
+LINE_COLOR        = (0, 200, 255)    # Cyan for virtual line
+LINE_COLOR_ALERT  = (0, 60, 255)     # Red when there's a crossing event
+TRAJECTORY_COLOR  = (180, 180, 180)  # Gray for movement trail
+TRAJECTORY_LENGTH = 30               # How many past frames of the trail to display

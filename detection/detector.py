@@ -1,8 +1,8 @@
 # detector.py
 # ============================================================
-# Class ini membungkus YOLO11 supaya mudah dipakai.
-# Minggu-minggu berikutnya kita tidak perlu ubah file ini —
-# cukup import dan pakai.
+# This class wraps YOLO11 to make it easy to use.
+# In the following weeks, we won't need to change this file -
+# just import and use it.
 # ============================================================
 
 from ultralytics import YOLO
@@ -15,19 +15,19 @@ import config
 @dataclass
 class Detection:
     """
-    Satu detection = satu orang yang terdeteksi di frame.
+    One detection = one person detected in the frame.
 
-    Kenapa pakai dataclass?
-    Supaya data terstruktur dan mudah di-extend minggu depan
-    (misalnya nanti ditambah track_id, age, gender, dll).
+    Why use dataclass?
+    To keep the data structured and easy to extend next week
+    (e.g. later adding track_id, age, gender, etc).
     """
-    bbox: List[float]       # [x1, y1, x2, y2] — koordinat bounding box
-    confidence: float       # 0.0 - 1.0, seberapa yakin model ini "orang"
-    class_id: int           # Selalu 0 (person), tapi disimpan untuk konsistensi
+    bbox: List[float]       # [x1, y1, x2, y2] - bounding box coordinates
+    confidence: float       # 0.0 - 1.0, how confident the model is that this is a "person"
+    class_id: int           # Always 0 (person), but kept for consistency
 
     @property
     def center(self):
-        """Titik tengah bounding box. Dipakai nanti untuk heatmap (minggu 3)."""
+        """Center point of the bounding box. Used later for heatmap (week 3)."""
         x1, y1, x2, y2 = self.bbox
         return (int((x1 + x2) / 2), int((y1 + y2) / 2))
 
@@ -46,19 +46,19 @@ class Detection:
 
 class PersonDetector:
     """
-    Wrapper untuk YOLO11 yang khusus detect orang.
+    Wrapper for YOLO11 specifically to detect people.
 
-    Kenapa dibungkus ke class terpisah?
-    - Supaya main.py tidak tahu detail implementasi YOLO
-    - Kalau nanti ganti model (misal ke YOLO12), cukup edit file ini
-    - Mudah di-test secara terpisah
+    Why wrap it in a separate class?
+    - So main.py doesn't need to know YOLO implementation details
+    - If we change the model later (e.g. to YOLO12), just edit this file
+    - Easy to test independently
     """
 
     def __init__(self):
         print(f"[Detector] Loading model: {config.MODEL_NAME}")
-        print(f"[Detector] Model akan auto-download jika belum ada (~6MB untuk nano)")
+        print(f"[Detector] Model will auto-download if missing (~6MB for nano)")
 
-        # Load model — pertama kali akan download otomatis dari Ultralytics
+        # Load model - first time will automatically download from Ultralytics
         self.model = YOLO(config.MODEL_NAME)
         self.confidence_threshold = config.CONFIDENCE_THRESHOLD
 
@@ -66,17 +66,17 @@ class PersonDetector:
 
     def detect(self, frame: np.ndarray) -> List[Detection]:
         """
-        Proses satu frame dan kembalikan list Detection.
+        Process one frame and return a list of Detections.
 
         Args:
-            frame: numpy array BGR dari OpenCV (shape: H x W x 3)
+            frame: numpy BGR array from OpenCV (shape: H x W x 3)
 
         Returns:
-            List[Detection]: semua orang yang terdeteksi di frame ini
+            List[Detection]: all people detected in this frame
         """
-        # Jalankan YOLO
-        # - classes=[0]: hanya detect class "person", ignore mobil, tas, dll
-        # - verbose=False: matikan log YOLO supaya terminal tidak berisik
+        # Run YOLO
+        # - classes=[0]: only detect "person" class, ignore cars, bags, etc.
+        # - verbose=False: mute YOLO logs so the terminal isn't noisy
         results = self.model(
             frame,
             classes=[config.CLASS_PERSON],
@@ -86,11 +86,11 @@ class PersonDetector:
 
         detections = []
 
-        # results[0] karena kita proses 1 frame per call
-        # .boxes berisi semua bounding box yang terdeteksi
+        # results[0] because we process 1 frame per call
+        # .boxes contains all detected bounding boxes
         for box in results[0].boxes:
-            # .xyxy = format [x1, y1, x2, y2] dalam pixels
-            # .cpu().numpy() = pindah dari GPU ke CPU, convert ke numpy
+            # .xyxy = format [x1, y1, x2, y2] in pixels
+            # .cpu().numpy() = move from GPU to CPU, convert to numpy
             bbox = box.xyxy[0].cpu().numpy().tolist()
             confidence = float(box.conf[0].cpu().numpy())
             class_id = int(box.cls[0].cpu().numpy())
@@ -104,5 +104,5 @@ class PersonDetector:
         return detections
 
     def get_person_count(self, detections: List[Detection]) -> int:
-        """Jumlah orang di frame ini. Simpel tapi berguna untuk display."""
+        """Number of people in this frame. Simple but useful for display."""
         return len(detections)

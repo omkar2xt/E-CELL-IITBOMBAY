@@ -77,7 +77,7 @@ class AnalyticsPipeline:
         queue = QueueMonitor(w, h)
         demo = DemographicEstimator()
         
-        # Demographic estimator sudah meng-handle inisialisasi OpenCV DNN di dalamnya.
+        # The Demographic estimator handles OpenCV DNN initialization internally.
         frame_id = 0
         prev_time = time.time()
         fps_smoothed = 0.0

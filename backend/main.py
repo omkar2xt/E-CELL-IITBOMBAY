@@ -7,7 +7,7 @@ import asyncio
 import sys
 import os
 
-# Tambahkan root directory ke sys.path agar import 'backend' berhasil walau di-run dari mana saja
+# Add root directory to sys.path so 'backend' import works regardless of where it's run from
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from backend.ws_manager import manager

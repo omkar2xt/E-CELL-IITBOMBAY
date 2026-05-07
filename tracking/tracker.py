@@ -1,11 +1,11 @@
 # tracker.py
 # ============================================================
-# Wrapper untuk ByteTrack via Ultralytics.
+# Wrapper for ByteTrack via Ultralytics.
 #
-# ByteTrack bekerja dalam 2 tahap assignment per frame:
-#   1. High-confidence detections  → cocokkan ke track aktif via IoU
-#   2. Low-confidence detections   → cocokkan ke track yang "hilang" sesaat
-# Ini yang bikin ByteTrack lebih stabil dari DeepSORT di kerumunan.
+# ByteTrack works in 2 assignment stages per frame:
+#   1. High-confidence detections  -> match to active tracks via IoU
+#   2. Low-confidence detections   -> match to momentarily "lost" tracks
+# This is what makes ByteTrack more stable than DeepSORT in crowds.
 # ============================================================
 
 import numpy as np
@@ -19,16 +19,16 @@ import config as config
 @dataclass
 class TrackedPerson:
     """
-    Satu orang yang sedang di-track.
-    Extend dari Detection (week 1) dengan tambahan tracking info.
+    A single person currently being tracked.
+    Extends Detection (week 1) with additional tracking info.
     """
-    track_id: int               # ID unik yang konsisten antar frame
+    track_id: int               # Unique ID consistent across frames
     bbox: List[float]           # [x1, y1, x2, y2]
     confidence: float
 
-    # Riwayat posisi center untuk gambar trajectory
+    # History of center positions for drawing trajectories
     # Key: track_id, Value: list of (cx, cy)
-    # Disimpan di luar class supaya persist antar frame
+    # Stored outside the class so it persists across frames
 
     @property
     def center(self) -> Tuple[int, int]:
@@ -38,9 +38,9 @@ class TrackedPerson:
     @property
     def bottom_center(self) -> Tuple[int, int]:
         """
-        Titik bawah tengah bounding box.
-        Lebih akurat untuk crossing detection daripada center,
-        karena representasi "posisi kaki" orang.
+        Bottom center point of the bounding box.
+        More accurate for crossing detection than the center,
+        as it represents the person's "foot position".
         """
         x1, y1, x2, y2 = self.bbox
         return (int((x1 + x2) / 2), int(y2))
@@ -56,56 +56,56 @@ class TrackedPerson:
 
 class PersonTracker:
     """
-    Multi-person tracker menggunakan ByteTrack (via Ultralytics).
+    Multi-person tracker using ByteTrack (via Ultralytics).
 
-    Kenapa via Ultralytics dan bukan implement ByteTrack manual?
-    - Ultralytics sudah integrate ByteTrack dengan YOLO secara optimal
-    - Kalman Filter dan Hungarian assignment sudah di-tune untuk person tracking
-    - Satu pipeline: detect + track dalam satu call
+    Why via Ultralytics and not a manual ByteTrack implementation?
+    - Ultralytics has already integrated ByteTrack optimally with YOLO
+    - Kalman Filter and Hungarian assignment are tuned for person tracking
+    - Single pipeline: detect + track in one call
     """
 
     def __init__(self):
         print(f"[Tracker] Loading model: {config.MODEL_NAME}")
         self.model = YOLO(config.MODEL_NAME)
 
-        # Riwayat posisi per track_id untuk gambar trajectory
+        # Position history per track_id for drawing trajectories
         # { track_id: [(cx, cy), (cx, cy), ...] }
         self.trajectories = defaultdict(list)
 
-        # Set track_id yang sudah pernah terlihat
-        # Dipakai untuk deteksi "track baru" (orang baru masuk frame)
+        # Set of track_ids that have been seen
+        # Used for detecting "new tracks" (new people entering the frame)
         self.seen_ids = set()
 
         print(f"[Tracker] ByteTrack ready. Buffer: {config.TRACK_BUFFER} frames")
 
     def update(self, frame: np.ndarray) -> List[TrackedPerson]:
         """
-        Proses satu frame: detect + track semua orang.
+        Process one frame: detect + track everyone.
 
-        Returns list TrackedPerson dengan track_id yang konsisten.
+        Returns a list of TrackedPersons with consistent track_ids.
         """
-        # Jalankan YOLO dengan tracker ByteTrack
-        # persist=True: penting! Ini yang membuat track ID konsisten
-        #               antar frame. Tanpa ini, ID reset setiap frame.
+        # Run YOLO with ByteTrack tracker
+        # persist=True: important! This is what keeps track IDs consistent
+        #               across frames. Without this, IDs reset every frame.
         results = self.model.track(
             frame,
             classes=[config.CLASS_PERSON],
             conf=config.TRACK_THRESH,
-            tracker="bytetrack.yaml",   # config ByteTrack bawaan Ultralytics
-            persist=True,               # WAJIB untuk ID konsisten
+            tracker="bytetrack.yaml",   # Default ByteTrack config from Ultralytics
+            persist=True,               # REQUIRED for consistent IDs
             verbose=False
         )
 
         tracked = []
 
         if results[0].boxes is None or results[0].boxes.id is None:
-            # Tidak ada orang terdeteksi di frame ini
+            # No people detected in this frame
             return tracked
 
         boxes = results[0].boxes
 
         for i in range(len(boxes)):
-            # Ambil data per orang
+            # Extract data per person
             bbox = boxes.xyxy[i].cpu().numpy().tolist()
             conf = float(boxes.conf[i].cpu().numpy())
             track_id = int(boxes.id[i].cpu().numpy())
@@ -126,27 +126,27 @@ class PersonTracker:
 
     def _update_trajectory(self, track_id: int, center: Tuple[int, int]):
         """
-        Simpan riwayat posisi center per track.
-        Batasi panjang trajectory supaya tidak makan memori.
+        Store history of center positions per track.
+        Limit trajectory length to avoid memory leaks.
         """
         self.trajectories[track_id].append(center)
 
-        # Batasi ke N frame terakhir
+        # Limit to the last N frames
         max_len = config.TRAJECTORY_LENGTH   # default 30 frames
         if len(self.trajectories[track_id]) > max_len:
             self.trajectories[track_id] = self.trajectories[track_id][-max_len:]
 
     def get_trajectory(self, track_id: int) -> List[Tuple[int, int]]:
-        """Ambil riwayat posisi untuk satu track."""
+        """Get position history for a single track."""
         return self.trajectories.get(track_id, [])
 
     def cleanup_old_tracks(self, active_ids: set):
         """
-        Hapus trajectory untuk track yang sudah lama tidak aktif.
-        Panggil ini setiap beberapa ratus frame untuk cegah memory leak.
+        Remove trajectories for tracks that have been inactive for a long time.
+        Call this every few hundred frames to prevent memory leaks.
         """
         dead_ids = set(self.trajectories.keys()) - active_ids
-        # Hanya hapus yang sudah tidak aktif lebih dari 2x buffer
+        # Only remove those inactive for longer than 2x buffer
         for tid in dead_ids:
             if len(self.trajectories[tid]) > 0:
                 del self.trajectories[tid]

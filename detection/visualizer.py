@@ -1,8 +1,8 @@
 # visualizer.py
 # ============================================================
-# Semua urusan "gambar sesuatu di atas frame" ada di sini.
-# Dipisah dari logic supaya kalau mau ganti tampilan,
-# tidak perlu sentuh detector atau main.
+# Everything related to "drawing things on the frame" is here.
+# Separated from logic so if we want to change the appearance,
+# we don't need to touch the detector or main.
 # ============================================================
 
 import cv2
@@ -15,76 +15,76 @@ import config
 
 class Visualizer:
     """
-    Menggambar bounding box, label, dan info panel di atas frame.
+    Draws bounding boxes, labels, and info panels on the frame.
     """
 
     def __init__(self):
-        # Untuk kalkulasi FPS
+        # For FPS calculation
         self._prev_time = time.time()
         self._fps = 0.0
-        self._fps_smoothed = 0.0     # FPS yang di-smooth supaya tidak jitter
+        self._fps_smoothed = 0.0     # Smoothed FPS to avoid jitter
 
     def draw(self, frame: np.ndarray, detections: List[Detection]) -> np.ndarray:
         """
-        Entry point utama. Gambar semua overlay ke frame.
+        Main entry point. Draws all overlays onto the frame.
 
         Args:
-            frame: frame original dari kamera/video
-            detections: list Detection dari PersonDetector
+            frame: original frame from camera/video
+            detections: list of Detections from PersonDetector
 
         Returns:
-            frame yang sudah ada overlay-nya (in-place edit)
+            frame with overlays added (in-place edit)
         """
-        # Hitung FPS dulu
+        # Calculate FPS first
         self._update_fps()
 
-        # 1. Gambar bounding box untuk tiap orang
+        # 1. Draw bounding box for each person
         for det in detections:
             self._draw_person_box(frame, det)
 
-        # 2. Gambar info panel di pojok kiri atas
+        # 2. Draw info panel in the top-left corner
         self._draw_info_panel(frame, len(detections))
 
         return frame
 
     def _draw_person_box(self, frame: np.ndarray, det: Detection):
         """
-        Gambar satu bounding box + label confidence.
+        Draw a single bounding box + confidence label.
 
-        Warna box sedikit berubah tergantung confidence:
-        - Confidence tinggi (>0.7) → lebih terang/solid
-        - Confidence rendah (0.4-0.7) → sedikit lebih pudar
-        Ini membantu identifikasi deteksi yang "ragu-ragu".
+        Box color slightly changes depending on confidence:
+        - High confidence (>0.7) -> brighter/solid
+        - Low confidence (0.4-0.7) -> slightly faded
+        This helps identify "hesitant" detections.
         """
         x1, y1, x2, y2 = [int(v) for v in det.bbox]
 
-        # Sesuaikan opacity warna berdasarkan confidence
+        # Adjust color opacity based on confidence
         alpha = 0.5 + (det.confidence * 0.5)   # range: 0.7 - 1.0
         b, g, r = config.BOX_COLOR
         color = (int(b * alpha), int(g * alpha), int(r * alpha))
 
-        # Gambar rectangle bounding box
+        # Draw bounding box rectangle
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, config.BOX_THICKNESS)
 
-        # Label confidence di atas box
+        # Confidence label above the box
         if config.DISPLAY_CONFIDENCE:
-            label = f"{det.confidence:.0%}"  # misal: "87%"
+            label = f"{det.confidence:.0%}"  # e.g.: "87%"
             self._draw_label(frame, label, x1, y1, color)
 
-        # Titik tengah — berguna untuk debug tracking (minggu 2)
+        # Center point - useful for tracking debugging (week 2)
         cx, cy = det.center
         cv2.circle(frame, (cx, cy), 3, color, -1)
 
     def _draw_label(self, frame, text, x, y, color):
         """
-        Gambar teks dengan background gelap supaya mudah dibaca
-        di background apapun (terang maupun gelap).
+        Draw text with a dark background to make it readable
+        on any background (bright or dark).
         """
         font = cv2.FONT_HERSHEY_SIMPLEX
         scale = config.FONT_SCALE
         thickness = 1
 
-        # Ukuran teks untuk menentukan ukuran background
+        # Text size to determine background size
         (tw, th), baseline = cv2.getTextSize(text, font, scale, thickness)
 
         # Background rectangle
@@ -97,7 +97,7 @@ class Visualizer:
             -1  # -1 = filled
         )
 
-        # Teks di atas background
+        # Text over the background
         cv2.putText(
             frame, text,
             (x + pad, y - pad),
@@ -107,14 +107,14 @@ class Visualizer:
 
     def _draw_info_panel(self, frame, person_count: int):
         """
-        Panel info di pojok kiri atas:
-        - Jumlah orang yang terdeteksi
+        Info panel in the top-left corner:
+        - Number of detected people
         - FPS
-        - Confidence threshold yang aktif
+        - Active confidence threshold
         """
         h, w = frame.shape[:2]
 
-        # Background panel semi-transparan
+        # Semi-transparent panel background
         panel_h = 90
         panel_w = 240
         overlay = frame.copy()
@@ -141,17 +141,17 @@ class Visualizer:
                 cv2.LINE_AA
             )
 
-        # Garis separator tipis di bawah panel
+        # Thin separator line below the panel
         cv2.line(frame, (0, panel_h), (panel_w, panel_h), (80, 80, 80), 1)
 
     def _update_fps(self):
-        """Hitung FPS dengan exponential smoothing supaya tidak jitter."""
+        """Calculate FPS using exponential smoothing to prevent jitter."""
         now = time.time()
         dt = now - self._prev_time
         self._prev_time = now
 
         if dt > 0:
             raw_fps = 1.0 / dt
-            # Exponential moving average: lebih smooth daripada raw FPS
+            # Exponential moving average: smoother than raw FPS
             self._fps_smoothed = 0.9 * self._fps_smoothed + 0.1 * raw_fps
             self._fps = raw_fps

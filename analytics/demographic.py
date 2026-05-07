@@ -1,16 +1,16 @@
 # demographic.py
 # ============================================================
-# Estimasi usia dan gender dari wajah yang terdeteksi.
+# Age and gender estimation from detected faces.
 #
-# IMPLEMENTASI: OpenCV DNN dengan model Caffe (GIL Levi & Tal Hassner, 2015)
-# Tidak memerlukan TensorFlow - kompatibel dengan Python 3.14+.
+# IMPLEMENTATION: OpenCV DNN with Caffe models (GIL Levi & Tal Hassner, 2015)
+# Does not require TensorFlow - compatible with Python 3.14+.
 #
-# Model akan otomatis didownload ke analytics/models/ saat pertama kali dijalankan.
+# Models will be automatically downloaded to analytics/models/ on first run.
 #
 # Privacy design:
-# - Frame wajah diproses lalu langsung dibuang dari memori
-# - Hanya statistik agregat yang disimpan (distribusi usia/gender)
-# - Tidak ada mapping antara Track ID dan hasil demografi
+# - Face crops are processed and then immediately discarded from memory
+# - Only aggregate statistics are saved (age/gender distribution)
+# - No mapping between Track IDs and demographic results
 # ============================================================
 
 import cv2
@@ -27,7 +27,7 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'tracking'))
 from tracker import TrackedPerson
 
-# ── Model URLs & paths ──────────────────────────────────────
+# -- Model URLs & paths --------------------------------------
 _MODEL_DIR = os.path.join(os.path.dirname(__file__), 'models')
 
 _AGE_PROTO    = os.path.join(_MODEL_DIR, 'age_deploy.prototxt')
@@ -50,14 +50,14 @@ _AGE_BUCKETS   = ['(0-2)', '(4-6)', '(8-12)', '(15-20)', '(25-32)',
 _GENDER_LABELS = ['Male', 'Female']
 _MODEL_MEAN    = (78.4263377603, 87.7689143744, 114.895847746)
 
-# Haar Cascade bawaan OpenCV - zero download required
+# OpenCV's built-in Haar Cascade - zero download required
 _HAAR_CASCADE  = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
 
 
 class DemographicEstimator:
     """
-    Estimasi demografi menggunakan OpenCV DNN (Caffe models).
-    Tidak memerlukan TensorFlow - bekerja di Python 3.14+.
+    Demographic estimation using OpenCV DNN (Caffe models).
+    Does not require TensorFlow - works in Python 3.14+.
     """
 
     def __init__(self):
@@ -83,10 +83,10 @@ class DemographicEstimator:
 
         self._try_init()
 
-    # ── Init ────────────────────────────────────────────────
+    # -- Init ------------------------------------------------
 
     def _try_init(self):
-        """Download model jika belum ada, lalu load via OpenCV DNN."""
+        """Download models if missing, then load via OpenCV DNN."""
         try:
             os.makedirs(_MODEL_DIR, exist_ok=True)
             self._download_models()
@@ -115,13 +115,13 @@ class DemographicEstimator:
                 raise RuntimeError(f"Failed to download {filename}: {e}")
 
     def _load_nets(self):
-        # Haar Cascade untuk face detection (bawaan OpenCV, zero download)
+        # Haar Cascade for face detection (built into OpenCV, zero download)
         self._face_cascade = cv2.CascadeClassifier(_HAAR_CASCADE)
-        # Caffe models untuk age/gender
+        # Caffe models for age/gender
         self._age_net    = cv2.dnn.readNetFromCaffe(_AGE_PROTO, _AGE_MODEL)
         self._gender_net = cv2.dnn.readNetFromCaffe(_GENDER_PROTO, _GENDER_MODEL)
 
-    # ── Main update loop ────────────────────────────────────
+    # -- Main update loop ------------------------------------
 
     def update(self, frame: np.ndarray, tracked_persons: List[TrackedPerson]):
         if not self._enabled:
@@ -152,14 +152,14 @@ class DemographicEstimator:
         )
         thread.start()
 
-    # ── Internal helpers ────────────────────────────────────
+    # -- Internal helpers ------------------------------------
 
     def _extract_face_region(
         self,
         frame: np.ndarray,
         person: TrackedPerson
     ) -> Optional[np.ndarray]:
-        """Crop area kepala (40% teratas bbox) untuk analisa."""
+        """Crop the head area (top 40% of bbox) for analysis."""
         h, w = frame.shape[:2]
         x1, y1, x2, y2 = [int(v) for v in person.bbox]
 
@@ -178,8 +178,8 @@ class DemographicEstimator:
 
     def _analyze_crops(self, crops: List[np.ndarray]):
         """
-        Jalankan face detection + age/gender inference pada list crop.
-        Background thread - hanya simpan statistik agregat.
+        Run face detection + age/gender inference on a list of crops.
+        Runs in a background thread - only saves aggregate statistics.
         """
         try:
             ages    = []
@@ -193,7 +193,7 @@ class DemographicEstimator:
                         minSize=(20, 20)
                     )
 
-                    # Jika Haar tidak detect wajah, pakai crop langsung
+                    # If Haar doesn't detect a face, use the whole crop directly
                     if len(faces) > 0:
                         x, y, fw, fh = faces[0]
                         face_img = crop[y:y+fh, x:x+fw]
@@ -203,7 +203,7 @@ class DemographicEstimator:
                     if face_img.size == 0:
                         continue
 
-                    # ── Age & Gender inference ───────────────
+                    # -- Age & Gender inference ---------------
                     face_blob = cv2.dnn.blobFromImage(
                         face_img, 1.0, (227, 227),
                         _MODEL_MEAN, swapRB=False
@@ -232,7 +232,7 @@ class DemographicEstimator:
             self._processing = False
 
     def _update_latest_results(self):
-        """Hitung distribusi dari history. Panggil dengan lock."""
+        """Calculate the distribution from history. Call with lock."""
         age_counts    = Counter(self._age_history)
         gender_counts = Counter(self._gender_history)
 
@@ -253,7 +253,7 @@ class DemographicEstimator:
         }
 
     def get_results(self) -> Dict:
-        """Ambil hasil terbaru. Thread-safe."""
+        """Fetch the latest results. Thread-safe."""
         with self._lock:
             return dict(self._latest_results)
 

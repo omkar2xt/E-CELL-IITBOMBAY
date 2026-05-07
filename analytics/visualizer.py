@@ -1,11 +1,11 @@
 # visualizer.py - analytics module
 # ============================================================
-# Extend tracking visualizer dengan:
+# Extends tracking visualizer with:
 # - Trajectory overlay
 # - Counting line + crossing flash
 # - Demographic label per person
-# - Info panel kiri atas (count, IN/OUT, FPS)
-# - Demographic panel kanan atas (gender + age distribution)
+# - Top-left info panel (count, IN/OUT, FPS)
+# - Top-right demographic panel (gender + age distribution)
 # ============================================================
 
 import cv2
@@ -40,8 +40,8 @@ class AnalyticsVisualizer:
         demo,            # DemographicEstimator instance
     ) -> np.ndarray:
         """
-        Gambar semua overlay analytics ke frame.
-        Heatmap dan queue zone sudah di-apply sebelum masuk sini (di main.py).
+        Draw all analytics overlays onto the frame.
+        Heatmap and queue zone are already applied before entering here (in main.py).
         """
         self._update_fps()
 
@@ -50,7 +50,7 @@ class AnalyticsVisualizer:
             self._flash_frames = 8
             self._flash_direction = counter.current_crossings[-1][1]
 
-        # 1. Trajectory (layer paling bawah dari overlay ini)
+        # 1. Trajectories (bottom layer of this overlay)
         for person in tracked_persons:
             traj = trajectories.get(person.track_id, [])
             self._draw_trajectory(frame, traj)
@@ -58,14 +58,14 @@ class AnalyticsVisualizer:
         # 2. Counting line
         self._draw_counting_line(frame, counter)
 
-        # 3. Bounding box + Track ID + label demografi
+        # 3. Bounding boxes + Track IDs + demographic labels
         for person in tracked_persons:
             self._draw_tracked_person(frame, person, demo)
 
-        # 4. Info panel kiri atas
+        # 4. Top-left info panel
         self._draw_info_panel(frame, tracked_persons, counter, queue)
 
-        # 5. Demographic panel kanan atas
+        # 5. Top-right demographic panel
         if demo.is_enabled and demo.get_results().get("sample_count", 0) > 0:
             self._draw_demo_panel(frame, demo)
 
@@ -76,7 +76,7 @@ class AnalyticsVisualizer:
 
         return frame
 
-    # ── Drawing helpers ──
+    # -- Drawing helpers --
 
     def _draw_tracked_person(self, frame, person: TrackedPerson, demo):
         x1, y1, x2, y2 = [int(v) for v in person.bbox]
@@ -89,8 +89,8 @@ class AnalyticsVisualizer:
         label = f"ID:{person.track_id}  {person.confidence:.0%}"
         self._draw_label(frame, label, x1, y1, config.TRACK_ID_COLOR)
 
-        # ← hapus bagian demo.get_result per track_id, tidak ada di class
-        # demografi tidak di-map ke individu by design (privacy)
+        # <- removed demo.get_result per track_id, does not exist in class
+        # demographics are not mapped to individuals by design (privacy)
 
         cv2.circle(frame, person.bottom_center, 4, config.TRACK_ID_COLOR, -1)
 
@@ -114,7 +114,7 @@ class AnalyticsVisualizer:
                     cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 1, cv2.LINE_AA)
 
     def _draw_info_panel(self, frame, tracked_persons, counter, queue):
-        """Panel kiri atas: tracking stats + queue count + FPS."""
+        """Top-left panel: tracking stats + queue count + FPS."""
         panel_w, panel_h = 255, 135
         overlay = frame.copy()
         cv2.rectangle(overlay, (0, 0), (panel_w, panel_h), (0, 0, 0), -1)
@@ -144,7 +144,7 @@ class AnalyticsVisualizer:
         panel_w, panel_h = 210, 145
         px = fw - panel_w - 5
 
-        # Ambil data via get_results()
+        # Fetch data via get_results()
         results = demo.get_results()
         n = results.get("sample_count", 0)
         if n == 0:

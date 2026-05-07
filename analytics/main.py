@@ -2,7 +2,7 @@
 # ============================================================
 # Entry point Week 3: Heatmap + Queue Monitor + Demographics
 #
-# Cara pakai:
+# Usage:
 #   python main.py --source video.mp4
 #   python main.py --source 0
 #   python main.py --source video.mp4 --save
@@ -35,9 +35,9 @@ def parse_args():
     parser.add_argument("--save", action="store_true")
     parser.add_argument("--headless", action="store_true")
     parser.add_argument("--no-demo", action="store_true",
-                        help="Nonaktifkan estimasi demografi (lebih cepat)")
+                        help="Disable demographic estimation (faster)")
     parser.add_argument("--save-heatmap", action="store_true",
-                        help="Simpan snapshot heatmap final saat keluar")
+                        help="Save a final heatmap snapshot on exit")
     parser.add_argument("--line-orientation", choices=["horizontal", "vertical"],
                         default=config.LINE_ORIENTATION)
     return parser.parse_args()
@@ -52,7 +52,7 @@ def open_source(source_str):
         print(f"[Main] Video: {source}")
     cap = cv2.VideoCapture(source)
     if not cap.isOpened():
-        print(f"[ERROR] Tidak bisa buka: {source}")
+        print(f"[ERROR] Cannot open: {source}")
         sys.exit(1)
     return cap
 
@@ -66,10 +66,10 @@ def get_dims(cap):
 
 def build_line(w, h, orientation):
     if orientation == "horizontal":
-        # Geser posisi garis vertikal ke area kanan (80% dari lebar layar)
+        # Shift the vertical line position to the right area (80% of screen width)
         line_x = int(w * 0.8)
         
-        # Garis digambar dari tengah layar (y=h*0.4) ke bawah layar (y=h) 
+        # Line drawn from the middle of the screen (y=h*0.4) to the bottom of the screen (y=h) 
         return (line_x, int(h * 0.4)), (line_x, h)
     return (0, h // 2), (w, h // 2)
 
@@ -86,11 +86,11 @@ def print_controls():
     print("\n" + "="*52)
     print("  Retail Analytics - Week 3: Analytics")
     print("="*52)
-    print("  [Q] / [ESC]  Keluar")
+    print("  [Q] / [ESC]  Quit")
     print("  [P]          Pause / Resume")
     print("  [H]          Toggle heatmap on/off")
     print("  [R]          Reset counter + heatmap")
-    print("  [E]          Export snapshot heatmap sekarang")
+    print("  [E]          Export current heatmap snapshot")
     print("  [S]          Screenshot")
     print("  [+] / [-]    Confidence threshold")
     print("="*52 + "\n")
@@ -121,7 +121,7 @@ def main():
 
     print_controls()
 
-    # ── Init semua komponen ──
+    # -- Init all components --
     tracker    = PersonTracker()
     cap        = open_source(args.source)
     w, h, fps  = get_dims(cap)
@@ -135,7 +135,7 @@ def main():
 
     if args.no_demo:
         demo._enabled = False
-        print("[Main] Demographic estimation dinonaktifkan.")
+        print("[Main] Demographic estimation disabled.")
 
     writer       = setup_writer(cap, config.OUTPUT_PATH) if (args.save or args.headless) else None
     show_heatmap = True
@@ -146,7 +146,7 @@ def main():
 
     try:
         while True:
-            # ── Pause handler ──
+            # -- Pause handler --
             if paused:
                 key = cv2.waitKey(50) & 0xFF
                 if key in [ord('p'), ord('P')]:
@@ -158,40 +158,40 @@ def main():
             ret, frame = cap.read()
             if not ret:
                 if cap.get(cv2.CAP_PROP_POS_FRAMES) > 0:
-                    print("[Main] Video selesai, loop ulang...")
+                    print("[Main] Video finished, looping...")
                     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                     continue
                 break
 
             frame_count += 1
 
-            # ── Core pipeline ──
+            # -- Core pipeline --
 
-            # 1. Track semua orang
+            # 1. Track everyone
             tracked = tracker.update(frame)
 
-            # 2. Cek crossing untuk counter IN/OUT
+            # 2. Check crossings for IN/OUT counter
             counter.update(tracked)
 
-            # 3. Update heatmap dengan posisi semua orang
+            # 3. Update heatmap with all positions
             positions = [p.bottom_center for p in tracked]
             heatmap.update(positions)
 
             # 4. Update queue monitor
             queue.update(tracked)
 
-            # 5. Update demografi (background thread, tidak block)
+            # 5. Update demographics (background thread, non-blocking)
             demo.update(frame, tracked)
 
-            # ── Render ──
+            # -- Render --
 
             frame_display = frame.copy()
 
-            # 6. Apply heatmap overlay dulu (layer paling bawah)
+            # 6. Apply heatmap overlay first (bottom-most layer)
             if show_heatmap:
                 frame_display = heatmap.apply_to_frame(frame_display)
 
-            # 7. Draw zona kasir
+            # 7. Draw cashier zone
             frame_display = queue.draw_zone(frame_display)
 
             # 8. Draw tracking overlay (box, ID, trajectory, line, panel)
@@ -204,7 +204,7 @@ def main():
                 demo,
             )
 
-            # ── Output ──
+            # -- Output --
             if not args.headless:
                 cv2.namedWindow(config.WINDOW_NAME, cv2.WINDOW_NORMAL)
                 cv2.moveWindow(config.WINDOW_NAME, 100, 100)
@@ -222,12 +222,12 @@ def main():
             if writer:
                 writer.write(frame_display)
 
-            # Cleanup trajectories lama setiap 300 frame
+            # Cleanup old trajectories every 300 frames
             if frame_count % 300 == 0:
                 active = {p.track_id for p in tracked}
                 tracker.cleanup_old_tracks(active)
 
-            # ── Keyboard ──
+            # -- Keyboard --
             if args.headless:
                 continue
 
@@ -250,7 +250,7 @@ def main():
                 fname = f"heatmap_export_{export_n:03d}.jpg"
                 overlay = heatmap.get_overlay()
                 cv2.imwrite(fname, overlay)
-                print(f"[Main] Heatmap disimpan: {fname}")
+                print(f"[Main] Heatmap saved: {fname}")
             elif key in [ord('s'), ord('S')]:
                 screenshot_n += 1
                 fname = f"screenshot_w3_{screenshot_n:03d}.jpg"
@@ -264,14 +264,14 @@ def main():
                 print(f"[Main] Confidence: {config.TRACK_THRESH:.2f}")
 
     except KeyboardInterrupt:
-        print("\n[Main] Dihentikan.")
+        print("\n[Main] Stopped.")
 
     finally:
         if args.save_heatmap:
             overlay = heatmap.get_overlay()
             hm_path = "heatmap_final.jpg"
             cv2.imwrite(hm_path, overlay)
-            print(f"[Main] Heatmap final: {hm_path}")
+            print(f"[Main] Final heatmap: {hm_path}")
 
         print_summary(counter, queue, demo)
         cap.release()
@@ -279,7 +279,7 @@ def main():
             writer.release()
             print(f"[Main] Video: {config.OUTPUT_PATH}")
         cv2.destroyAllWindows()
-        print("[Main] Selesai.")
+        print("[Main] Finished.")
 
 
 if __name__ == "__main__":

@@ -1,9 +1,9 @@
 # visualizer.py
 # ============================================================
-# Extend visualizer dari detection/ dengan tambahan:
-# - Track ID label di atas bounding box
-# - Trajectory (jejak pergerakan)
-# - Virtual line dengan counter
+# Extends the visualizer from detection/ with additions:
+# - Track ID label above the bounding box
+# - Trajectory (movement trail)
+# - Virtual line with counter
 # - Crossing event flash
 # ============================================================
 
@@ -22,7 +22,7 @@ class TrackingVisualizer:
         self._prev_time = time.time()
         self._fps_smoothed = 0.0
 
-        # Flash effect saat ada crossing: (frame_countdown, direction)
+        # Flash effect on crossing: (frame_countdown, direction)
         self._flash_frames = 0
         self._flash_direction = ""
 
@@ -34,37 +34,37 @@ class TrackingVisualizer:
         tracker_trajectories: dict
     ) -> np.ndarray:
         """
-        Gambar semua overlay ke frame.
+        Draw all overlays onto the frame.
 
         Args:
-            frame: frame BGR dari OpenCV
-            tracked_persons: list dari PersonTracker.update()
-            counter: LineCounter instance (untuk ambil count)
+            frame: BGR frame from OpenCV
+            tracked_persons: list from PersonTracker.update()
+            counter: LineCounter instance (to fetch counts)
             tracker_trajectories: dict {track_id: [(cx,cy), ...]}
         """
         self._update_fps()
 
-        # Update flash state kalau ada crossing
+        # Update flash state if there's a crossing
         if counter.has_crossing_this_frame():
-            self._flash_frames = 8  # flash selama 8 frame
+            self._flash_frames = 8  # flash for 8 frames
             self._flash_direction = counter.current_crossings[-1][1]
 
-        # 1. Gambar trajectory dulu (paling bawah layer)
+        # 1. Draw trajectories first (bottom layer)
         for person in tracked_persons:
             traj = tracker_trajectories.get(person.track_id, [])
             self._draw_trajectory(frame, traj)
 
-        # 2. Gambar virtual line
+        # 2. Draw virtual counting line
         self._draw_counting_line(frame, counter)
 
-        # 3. Gambar bounding box + track ID
+        # 3. Draw bounding boxes + track IDs
         for person in tracked_persons:
             self._draw_tracked_person(frame, person)
 
         # 4. Info panel
         self._draw_info_panel(frame, tracked_persons, counter)
 
-        # 5. Flash effect crossing
+        # 5. Crossing flash effect
         if self._flash_frames > 0:
             self._draw_crossing_flash(frame)
             self._flash_frames -= 1
@@ -75,7 +75,7 @@ class TrackingVisualizer:
         """Bounding box + Track ID label."""
         x1, y1, x2, y2 = [int(v) for v in person.bbox]
 
-        # Warna box berdasarkan confidence
+        # Box color based on confidence
         alpha = 0.6 + person.confidence * 0.4
         b, g, r = config.BOX_COLOR
         box_color = (int(b * alpha), int(g * alpha), int(r * alpha))
@@ -90,22 +90,22 @@ class TrackingVisualizer:
 
         self._draw_label(frame, label, x1, y1, config.TRACK_ID_COLOR)
 
-        # Titik bottom_center (referensi counting)
+        # Bottom center point (counting reference)
         bcx, bcy = person.bottom_center
         cv2.circle(frame, (bcx, bcy), 4, config.TRACK_ID_COLOR, -1)
 
     def _draw_trajectory(self, frame: np.ndarray, trajectory: list):
         """
-        Gambar jejak pergerakan sebagai polyline.
-        Makin lama jalurnya makin pudar (fade effect).
+        Draw movement history as a polyline.
+        Older segments fade out.
         """
         if len(trajectory) < 2:
             return
 
         n = len(trajectory)
         for i in range(1, n):
-            # Fade: titik lama lebih transparan
-            fade = i / n  # 0.0 (lama) -> 1.0 (sekarang)
+            # Fade: older points are more transparent
+            fade = i / n  # 0.0 (oldest) -> 1.0 (newest)
             b, g, r = config.TRAJECTORY_COLOR
             color = (int(b * fade), int(g * fade), int(r * fade))
             thickness = 1 if fade < 0.5 else 2
@@ -114,8 +114,8 @@ class TrackingVisualizer:
 
     def _draw_counting_line(self, frame: np.ndarray, counter: LineCounter):
         """
-        Gambar virtual line.
-        Berkedip merah saat ada crossing event.
+        Draw the virtual counting line.
+        Flashes red during a crossing event.
         """
         color = config.LINE_COLOR_ALERT if self._flash_frames > 0 else config.LINE_COLOR
         thickness = 3 if self._flash_frames > 0 else 2
@@ -129,7 +129,7 @@ class TrackingVisualizer:
             cv2.LINE_AA
         )
 
-        # Label di ujung garis
+        # Label at the start of the line
         lx, ly = counter.line_start
         cv2.putText(
             frame, "COUNT LINE",
@@ -145,10 +145,10 @@ class TrackingVisualizer:
         counter: LineCounter
     ):
         """
-        Info panel pojok kiri atas:
-        - Orang di frame sekarang
+        Top-left info panel:
+        - People currently in frame
         - Total IN / OUT
-        - Occupancy (estimasi yang sedang di dalam)
+        - Occupancy (estimated number of people inside)
         - FPS
         """
         panel_w, panel_h = 250, 115
@@ -173,8 +173,8 @@ class TrackingVisualizer:
 
     def _draw_crossing_flash(self, frame: np.ndarray):
         """
-        Overlay warna di tepi frame saat ada crossing.
-        Hijau = IN, Merah = OUT.
+        Color overlay on the edge of the frame during crossing.
+        Green = IN, Red = OUT.
         """
         h, w = frame.shape[:2]
         color = (0, 200, 50) if self._flash_direction == "IN" else (0, 50, 220)
@@ -184,7 +184,7 @@ class TrackingVisualizer:
         cv2.rectangle(overlay, (0, 0), (w, h), color, 20)
         cv2.addWeighted(overlay, intensity / 255, frame, 1 - intensity / 255, 0, frame)
 
-        # Teks crossing di tengah bawah
+        # Crossing text at bottom center
         text = f"  {self._flash_direction}  "
         tw, th = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 1.2, 2)[0]
         tx = (w - tw) // 2

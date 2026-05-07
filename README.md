@@ -270,7 +270,7 @@ YOLO11 is pre-trained on **COCO** (Common Objects in Context), which includes th
 | Source | Purpose | Link |
 |--------|---------|------|
 | COCO Dataset | Pre-training base for YOLO11 person detection | [cocodataset.org](https://cocodataset.org) |
-| HD CCTV Retail Store Footage | Indoor detection, queue monitoring, heatmap validation | [YouTube — HDCCTVCameras.net](https://youtu.be/KMJS66jBtVQ?si=G00eXl5hKCCCmqAo) |
-| One Minute in Hong Kong — Pedestrian Crossing | Wide-angle outdoor CCTV simulation | [YouTube — penguinsix](https://youtu.be/KMJS66jBtVQ) |
+| HD CCTV Retail Store Footage | Indoor detection, queue monitoring, heatmap validation | [YouTube - HDCCTVCameras.net](https://youtu.be/KMJS66jBtVQ?si=G00eXl5hKCCCmqAo) |
+| One Minute in Hong Kong - Pedestrian Crossing | Wide-angle outdoor CCTV simulation | [YouTube - penguinsix](https://youtu.be/KMJS66jBtVQ) |
 
 > The retail store video (iProx CCTV, Hikvision NVR) is a real-world 3MP/4MP IP camera installation from a high street homecare products store. It closely represents actual deployment conditions for this system.

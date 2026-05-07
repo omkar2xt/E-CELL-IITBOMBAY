@@ -1,16 +1,16 @@
 # heatmap.py
 # ============================================================
-# Akumulasi posisi foot traffic menjadi heatmap.
+# Accumulates foot traffic positions into a heatmap.
 #
-# Cara kerja:
-# 1. Maintain numpy array 2D berukuran sama dengan frame
-# 2. Setiap orang terdeteksi -> tambahkan Gaussian "blob" di posisinya
-# 3. Normalize array -> apply colormap -> overlay ke frame
+# How it works:
+# 1. Maintain a 2D numpy array the same size as the frame
+# 2. Each time a person is detected -> add a Gaussian "blob" at their position
+# 3. Normalize the array -> apply colormap -> overlay onto the frame
 #
-# Kenapa Gaussian dan bukan dot biasa?
-# Gaussian membuat area di sekitar orang ikut "panas" secara gradual,
-# bukan hanya satu pixel. Ini lebih realistis karena orang menempati
-# area, bukan titik.
+# Why a Gaussian and not just a normal dot?
+# A Gaussian makes the area around the person also "hot" gradually,
+# not just a single pixel. This is more realistic because a person occupies
+# an area, not a point.
 # ============================================================
 
 import cv2
@@ -25,12 +25,12 @@ class HeatmapGenerator:
         self.width  = frame_width
         self.height = frame_height
 
-        # Akumulator utama - float32 supaya bisa akumulasi nilai besar
-        # tanpa overflow (uint8 max = 255)
+        # Main accumulator - float32 so it can accumulate large values
+        # without overflowing (uint8 max = 255)
         self._accumulator = np.zeros((frame_height, frame_width), dtype=np.float32)
 
-        # Pre-compute Gaussian kernel sekali saja supaya tidak compute ulang
-        # tiap frame (optimasi)
+        # Pre-compute the Gaussian kernel once so it doesn't need recomputing
+        # every frame (optimization)
         self._kernel = self._make_gaussian_kernel(config.HEATMAP_RADIUS)
 
         self._frame_count = 0
@@ -40,28 +40,28 @@ class HeatmapGenerator:
 
     def _make_gaussian_kernel(self, radius: int) -> np.ndarray:
         """
-        Buat Gaussian kernel 2D.
+        Create a 2D Gaussian kernel.
 
-        Kernel ini adalah "stempel" yang ditempel ke accumulator
-        setiap ada orang. Bentuknya seperti bukit: puncak di tengah,
-        menurun ke tepi.
+        This kernel is like a "stamp" pasted onto the accumulator
+        for every person. Its shape is like a hill: peak at the center,
+        sloping down to the edges.
 
-        radius: menentukan seberapa besar area yang terpengaruh.
+        radius: determines how large the affected area is.
         """
         size = radius * 2 + 1
         x = np.linspace(-radius, radius, size)
         gauss_1d = np.exp(-0.5 * (x / (radius / 2)) ** 2)
         kernel = np.outer(gauss_1d, gauss_1d)
-        # Normalize supaya total energi = 1
+        # Normalize so total energy = 1
         kernel = kernel / kernel.sum()
         return kernel.astype(np.float32)
 
     def update(self, positions: List[Tuple[int, int]]):
         """
-        Tambahkan posisi orang ke accumulator.
+        Add people's positions to the accumulator.
 
         Args:
-            positions: list titik (cx, cy) dari setiap tracked person
+            positions: list of (cx, cy) points for each tracked person
         """
         self._frame_count += 1
         r = config.HEATMAP_RADIUS
@@ -69,14 +69,14 @@ class HeatmapGenerator:
         intensity = config.HEATMAP_INTENSITY
 
         for cx, cy in positions:
-            # Hitung area di accumulator yang akan ditempel kernel
+            # Calculate the area on the accumulator where the kernel will be placed
             x1 = cx - r
             y1 = cy - r
             x2 = cx + r + 1
             y2 = cy + r + 1
 
-            # Hitung overlap antara kernel dan batas frame
-            # (kalau orang di tepi frame, kernel mungkin keluar batas)
+            # Calculate the overlap between the kernel and the frame boundaries
+            # (if the person is at the edge of the frame, the kernel might go out of bounds)
             kx1 = max(0, -x1)
             ky1 = max(0, -y1)
             kx2 = kw - max(0, x2 - self.width)
@@ -87,7 +87,7 @@ class HeatmapGenerator:
             ax2 = min(self.width,  x2)
             ay2 = min(self.height, y2)
 
-            # Validasi area overlap tidak kosong
+            # Validate that the overlap area is not empty
             if ax2 > ax1 and ay2 > ay1 and kx2 > kx1 and ky2 > ky1:
                 self._accumulator[ay1:ay2, ax1:ax2] += (
                     self._kernel[ky1:ky2, kx1:kx2] * intensity
@@ -95,15 +95,15 @@ class HeatmapGenerator:
 
     def get_overlay(self) -> np.ndarray:
         """
-        Kembalikan heatmap sebagai BGR image siap di-overlay.
+        Return the heatmap as a BGR image ready to be overlaid.
 
         Normalize accumulator -> apply colormap -> return BGR array.
         """
         if self._accumulator.max() == 0:
-            # Belum ada data, return black image
+            # No data yet, return a black image
             return np.zeros((self.height, self.width, 3), dtype=np.uint8)
 
-        # Normalize ke 0-255
+        # Normalize to 0-255
         normalized = cv2.normalize(
             self._accumulator, None,
             0, 255,
@@ -117,25 +117,25 @@ class HeatmapGenerator:
 
     def apply_to_frame(self, frame: np.ndarray) -> np.ndarray:
         """
-        Blend heatmap overlay ke atas frame.
+        Blend the heatmap overlay onto the frame.
 
-        Hanya pixel yang "panas" (nilai > threshold) yang di-overlay,
-        area kosong tetap menampilkan frame asli.
+        Only "hot" pixels (values > threshold) are overlaid,
+        empty areas continue to show the original frame.
         """
         overlay = self.get_overlay()
 
-        # Mask: hanya area yang punya nilai signifikan
+        # Mask: only areas with significant values
         if self._accumulator.max() > 0:
             normalized = cv2.normalize(
                 self._accumulator, None, 0, 255, cv2.NORM_MINMAX
             ).astype(np.uint8)
 
-            # Threshold: hanya area > 10% dari max yang di-overlay
+            # Threshold: only areas > 10% of max are overlaid
             _, mask = cv2.threshold(normalized, 25, 255, cv2.THRESH_BINARY)
             mask_3ch = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
             mask_norm = mask_3ch.astype(np.float32) / 255.0
 
-            # Blend hanya di area mask
+            # Blend only in the masked areas
             alpha = config.HEATMAP_ALPHA
             blended = frame.copy().astype(np.float32)
             blended = np.where(
@@ -148,7 +148,7 @@ class HeatmapGenerator:
         return frame
 
     def reset(self):
-        """Reset accumulator (misal untuk sesi baru)."""
+        """Reset the accumulator (e.g., for a new session)."""
         self._accumulator[:] = 0
         self._frame_count = 0
 

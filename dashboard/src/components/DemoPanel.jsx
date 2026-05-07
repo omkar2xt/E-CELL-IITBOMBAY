@@ -1,10 +1,18 @@
 import React from 'react';
 
 export function DemoPanel({ demographics }) {
-  if (!demographics || !demographics.enabled || demographics.sample_count === 0) {
+  if (!demographics || !demographics.enabled) {
     return (
       <div className="demo-panel empty">
         <p>Demographic data unavailable or disabled.</p>
+      </div>
+    );
+  }
+
+  if (demographics.sample_count === 0) {
+    return (
+      <div className="demo-panel empty">
+        <p>Waiting for face detection to gather demographic data...</p>
       </div>
     );
   }
