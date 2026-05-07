@@ -1,0 +1,6 @@
+ultralytics>=8.3.0
+opencv-python>=4.9.0
+numpy>=1.24.0
+scipy>=1.4.1
+# deepface>=0.0.93
+# tf-keras>=2.16.0
