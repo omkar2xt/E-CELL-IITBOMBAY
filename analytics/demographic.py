@@ -1,55 +1,72 @@
 # demographic.py
 # ============================================================
 # Estimasi usia dan gender dari wajah yang terdeteksi.
-# Menggunakan DeepFace HANYA untuk attribute estimation,
-# bukan face recognition. Tidak ada embedding atau identitas
-# yang disimpan.
+#
+# IMPLEMENTASI: OpenCV DNN dengan model Caffe (GIL Levi & Tal Hassner, 2015)
+# Tidak memerlukan TensorFlow - kompatibel dengan Python 3.14+.
+#
+# Model akan otomatis didownload ke analytics/models/ saat pertama kali dijalankan.
 #
 # Privacy design:
 # - Frame wajah diproses lalu langsung dibuang dari memori
 # - Hanya statistik agregat yang disimpan (distribusi usia/gender)
 # - Tidak ada mapping antara Track ID dan hasil demografi
-#
-# Kenapa tidak run tiap frame?
-# DeepFace butuh ~100-300ms per wajah. Di 30fps, kalau run tiap
-# frame dengan 5 orang = 5 * 200ms = 1000ms per frame = 1fps.
-# Solusi: run setiap N frame, hasil di-cache sampai update berikutnya.
 # ============================================================
 
 import cv2
 import numpy as np
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional
 from collections import Counter, deque
 import threading
 import time
+import urllib.request
+import os
 import config
 
 import sys
-import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'tracking'))
 from tracker import TrackedPerson
+
+# ── Model URLs & paths ──────────────────────────────────────
+_MODEL_DIR = os.path.join(os.path.dirname(__file__), 'models')
+
+_AGE_PROTO    = os.path.join(_MODEL_DIR, 'age_deploy.prototxt')
+_AGE_MODEL    = os.path.join(_MODEL_DIR, 'age_net.caffemodel')
+
+_GENDER_PROTO = os.path.join(_MODEL_DIR, 'gender_deploy.prototxt')
+_GENDER_MODEL = os.path.join(_MODEL_DIR, 'gender_net.caffemodel')
+
+# Small prototxt files: download from raw GitHub (reliable)
+# Large caffemodel files: download from Google Drive via gdown
+_DOWNLOAD_URLS = {
+    _AGE_PROTO:    ('http', 'https://raw.githubusercontent.com/spmallick/learnopencv/master/AgeGender/age_deploy.prototxt'),
+    _GENDER_PROTO: ('http', 'https://raw.githubusercontent.com/spmallick/learnopencv/master/AgeGender/gender_deploy.prototxt'),
+    _AGE_MODEL:    ('gdrive', '1kiusFljZc9QfcIYdU2s7xrtWHTraHwmW'),
+    _GENDER_MODEL: ('gdrive', '1W_moLzMlGiELyPxWiYQJ9KFaXroQ_NFQ'),
+}
+
+_AGE_BUCKETS   = ['(0-2)', '(4-6)', '(8-12)', '(15-20)', '(25-32)',
+                  '(38-43)', '(48-53)', '(60-100)']
+_GENDER_LABELS = ['Male', 'Female']
+_MODEL_MEAN    = (78.4263377603, 87.7689143744, 114.895847746)
+
+# Haar Cascade bawaan OpenCV - zero download required
+_HAAR_CASCADE  = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
 
 
 class DemographicEstimator:
     """
-    Estimasi demografi dari bounding box orang.
-
-    Menggunakan face crop dari bounding box orang (bukan dedicated
-    face detector dulu) untuk kecepatan. DeepFace akan coba detect
-    wajah dari crop tersebut.
-
-    Run di background thread supaya tidak block main pipeline.
+    Estimasi demografi menggunakan OpenCV DNN (Caffe models).
+    Tidak memerlukan TensorFlow - bekerja di Python 3.14+.
     """
 
     def __init__(self):
         self._enabled = False
         self._lock = threading.Lock()
 
-        # History agregat (bukan per-individu)
-        self._age_history: deque = deque(maxlen=config.DEMO_HISTORY_SIZE)
+        self._age_history: deque    = deque(maxlen=config.DEMO_HISTORY_SIZE)
         self._gender_history: deque = deque(maxlen=config.DEMO_HISTORY_SIZE)
 
-        # Cache hasil terbaru untuk display
         self._latest_results: Dict = {
             "age_distribution": {},
             "gender_distribution": {},
@@ -58,40 +75,59 @@ class DemographicEstimator:
         }
 
         self._frame_counter = 0
-        self._processing = False   # flag: sedang proses di background?
+        self._processing    = False
 
-        # Coba import DeepFace
-        self._try_init_deepface()
+        self._face_cascade = None
+        self._age_net      = None
+        self._gender_net   = None
 
-    def _try_init_deepface(self):
-        """
-        DeepFace adalah optional dependency.
-        Kalau tidak terinstall, module tetap jalan tanpa demografi.
-        """
+        self._try_init()
+
+    # ── Init ────────────────────────────────────────────────
+
+    def _try_init(self):
+        """Download model jika belum ada, lalu load via OpenCV DNN."""
         try:
-            from deepface import DeepFace
-            self._DeepFace = DeepFace
+            os.makedirs(_MODEL_DIR, exist_ok=True)
+            self._download_models()
+            self._load_nets()
             self._enabled = True
-            print("[Demographic] DeepFace loaded. Estimasi demografi aktif.")
-            print(f"[Demographic] Backend: {config.DEMO_DETECTOR_BACKEND}")
-            # BENAR
-            print(f"[Demographic] Interval: setiap {config.DEMO_ANALYSIS_INTERVAL} frame")
-        except ImportError:
+            print("[Demographic] OpenCV DNN models loaded. Age/gender estimation active.")
+        except Exception as e:
             self._enabled = False
-            print("[Demographic] DeepFace tidak terinstall. Demografi dinonaktifkan.")
-            print("             Install dengan: pip install deepface tf-keras")
+            print(f"[Demographic] Failed to init: {e}")
+            print("             Demographic panel will be hidden in dashboard.")
+
+    def _download_models(self):
+        for path, (method, source) in _DOWNLOAD_URLS.items():
+            if os.path.exists(path):
+                continue
+            filename = os.path.basename(path)
+            print(f"[Demographic] Downloading {filename}...")
+            try:
+                if method == 'http':
+                    urllib.request.urlretrieve(source, path)
+                elif method == 'gdrive':
+                    import gdown
+                    gdown.download(id=source, output=path, quiet=False)
+                print(f"[Demographic]   OK: {filename}")
+            except Exception as e:
+                raise RuntimeError(f"Failed to download {filename}: {e}")
+
+    def _load_nets(self):
+        # Haar Cascade untuk face detection (bawaan OpenCV, zero download)
+        self._face_cascade = cv2.CascadeClassifier(_HAAR_CASCADE)
+        # Caffe models untuk age/gender
+        self._age_net    = cv2.dnn.readNetFromCaffe(_AGE_PROTO, _AGE_MODEL)
+        self._gender_net = cv2.dnn.readNetFromCaffe(_GENDER_PROTO, _GENDER_MODEL)
+
+    # ── Main update loop ────────────────────────────────────
 
     def update(self, frame: np.ndarray, tracked_persons: List[TrackedPerson]):
-        """
-        Panggil setiap frame. Akan run analisis setiap DEMO_INTERVAL frame.
-        Analisis berjalan di background thread.
-        """
         if not self._enabled:
             return
 
         self._frame_counter += 1
-
-        # Hanya proses setiap N frame dan kalau tidak sedang processing
         if self._frame_counter % config.DEMO_ANALYSIS_INTERVAL != 0:
             return
         if self._processing:
@@ -99,8 +135,6 @@ class DemographicEstimator:
         if not tracked_persons:
             return
 
-        # Crop wajah dari bounding box orang
-        # Ambil bagian atas bbox (area kepala/wajah ~30% dari tinggi)
         crops = []
         for person in tracked_persons:
             crop = self._extract_face_region(frame, person)
@@ -110,7 +144,6 @@ class DemographicEstimator:
         if not crops:
             return
 
-        # Jalankan DeepFace di background thread
         self._processing = True
         thread = threading.Thread(
             target=self._analyze_crops,
@@ -119,78 +152,77 @@ class DemographicEstimator:
         )
         thread.start()
 
+    # ── Internal helpers ────────────────────────────────────
+
     def _extract_face_region(
         self,
         frame: np.ndarray,
         person: TrackedPerson
     ) -> Optional[np.ndarray]:
-        """
-        Crop area kepala dari bounding box orang.
-
-        Strategi: ambil 35% teratas dari bounding box.
-        Ini bukan deteksi wajah yang presisi, tapi cukup untuk
-        memberi DeepFace area yang mengandung wajah.
-        DeepFace akan re-detect wajah di dalam crop ini.
-        """
+        """Crop area kepala (40% teratas bbox) untuk analisa."""
         h, w = frame.shape[:2]
         x1, y1, x2, y2 = [int(v) for v in person.bbox]
 
-        box_h = y2 - y1
-        face_y2 = y1 + int(box_h * 0.40)   # 40% teratas
+        box_h   = y2 - y1
+        face_y2 = y1 + int(box_h * 0.40)
 
-        # Pastikan dalam batas frame
-        x1 = max(0, x1)
-        y1 = max(0, y1)
-        x2 = min(w, x2)
+        x1      = max(0, x1)
+        y1      = max(0, y1)
+        x2      = min(w, x2)
         face_y2 = min(h, face_y2)
 
-        if x2 - x1 < 20 or face_y2 - y1 < 20:
-            return None   # terlalu kecil
+        if x2 - x1 < 30 or face_y2 - y1 < 30:
+            return None
 
-        crop = frame[y1:face_y2, x1:x2].copy()
-        return crop
+        return frame[y1:face_y2, x1:x2].copy()
 
     def _analyze_crops(self, crops: List[np.ndarray]):
         """
-        Jalankan DeepFace pada list crop. Background thread.
-        Hanya simpan statistik agregat, bukan data per-individu.
+        Jalankan face detection + age/gender inference pada list crop.
+        Background thread - hanya simpan statistik agregat.
         """
         try:
-            ages = []
+            ages    = []
             genders = []
 
             for crop in crops:
                 try:
-                    result = self._DeepFace.analyze(
-                        crop,
-                        actions=["age", "gender"],   # TIDAK include "identity"
-                        detector_backend=config.DEMO_DETECTOR_BACKEND,
-                        enforce_detection=False,      # tidak error kalau wajah tidak ketemu
-                        silent=True
+                    gray  = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+                    faces = self._face_cascade.detectMultiScale(
+                        gray, scaleFactor=1.1, minNeighbors=3,
+                        minSize=(20, 20)
                     )
 
-                    # result bisa list (multiple faces) atau dict (single face)
-                    if isinstance(result, list):
-                        result = result[0]
+                    # Jika Haar tidak detect wajah, pakai crop langsung
+                    if len(faces) > 0:
+                        x, y, fw, fh = faces[0]
+                        face_img = crop[y:y+fh, x:x+fw]
+                    else:
+                        face_img = crop
 
-                    age = result.get("age")
-                    gender_dict = result.get("gender", {})
+                    if face_img.size == 0:
+                        continue
 
-                    if age is not None:
-                        # Bin ke kelompok usia
-                        age_group = self._age_to_group(int(age))
-                        ages.append(age_group)
+                    # ── Age & Gender inference ───────────────
+                    face_blob = cv2.dnn.blobFromImage(
+                        face_img, 1.0, (227, 227),
+                        _MODEL_MEAN, swapRB=False
+                    )
 
-                    if gender_dict:
-                        # Ambil gender dengan confidence tertinggi
-                        dominant = max(gender_dict, key=gender_dict.get)
-                        genders.append(dominant)
+                    self._gender_net.setInput(face_blob)
+                    gender_preds = self._gender_net.forward()
+                    gender = _GENDER_LABELS[gender_preds[0].argmax()]
+
+                    self._age_net.setInput(face_blob)
+                    age_preds = self._age_net.forward()
+                    age_group = _AGE_BUCKETS[age_preds[0].argmax()]
+
+                    ages.append(age_group)
+                    genders.append(gender)
 
                 except Exception:
-                    # Wajah tidak terdeteksi di crop ini, skip
                     continue
 
-            # Update history agregat (thread-safe)
             with self._lock:
                 self._age_history.extend(ages)
                 self._gender_history.extend(genders)
@@ -199,19 +231,9 @@ class DemographicEstimator:
         finally:
             self._processing = False
 
-    def _age_to_group(self, age: int) -> str:
-        """Konversi usia ke kelompok untuk privasi dan readability."""
-        if age < 18:   return "< 18"
-        elif age < 25: return "18-24"
-        elif age < 35: return "25-34"
-        elif age < 45: return "35-44"
-        elif age < 55: return "45-54"
-        elif age < 65: return "55-64"
-        else:          return "65+"
-
     def _update_latest_results(self):
         """Hitung distribusi dari history. Panggil dengan lock."""
-        age_counts = Counter(self._age_history)
+        age_counts    = Counter(self._age_history)
         gender_counts = Counter(self._gender_history)
 
         total_age = sum(age_counts.values()) or 1
@@ -227,7 +249,7 @@ class DemographicEstimator:
                 for k, v in gender_counts.items()
             },
             "sample_count": len(self._age_history),
-            "last_update": time.strftime("%H:%M:%S"),
+            "last_update":  time.strftime("%H:%M:%S"),
         }
 
     def get_results(self) -> Dict:
