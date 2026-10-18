@@ -1,6 +1,6 @@
-# analytics
+# StorePulse AI — Core Analytics Module
 
-This module adds three analytics layers on top of the tracking pipeline: heatmap generation, zone-based queue monitoring, and demographic estimation (age range + gender).
+This module provides heatmap generation, zone-based queue monitoring, and demographic estimation layers.
 
 ---
 

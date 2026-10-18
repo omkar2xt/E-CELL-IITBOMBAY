@@ -1,6 +1,6 @@
 # main.py - tracking module
 # ============================================================
-# Entry point Week 2: Tracking + Counting
+# StorePulse AI - Tracking & Flow Pipeline
 #
 # Usage:
 #   python main.py --source 0                    webcam
@@ -27,7 +27,7 @@ from visualizer import TrackingVisualizer
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Week 2: Tracking + Counting")
+    parser = argparse.ArgumentParser(description="StorePulse AI - Tracking & Flow Pipeline")
     parser.add_argument("--source", default=str(config.VIDEO_SOURCE),
                         help="Video path or webcam index (0, 1, ...)")
     parser.add_argument("--conf", type=float, default=config.TRACK_THRESH,
@@ -99,7 +99,7 @@ def setup_writer(cap, path):
 
 def print_controls():
     print("\n" + "="*52)
-    print("  Retail Analytics - Week 2: Tracking + Counting")
+    print("  StorePulse AI - Tracking & Flow Pipeline")
     print("="*52)
     print("  [Q] / [ESC]  Quit")
     print("  [P]          Pause / Resume")

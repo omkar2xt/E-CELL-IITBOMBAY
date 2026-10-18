@@ -1,6 +1,6 @@
-# tracking
+# StorePulse AI — Multi-Person Tracking Module
 
-Week 2 of the Retail Intelligence System. This module adds ByteTrack multi-person tracking and virtual line counting on top of the detection pipeline from Week 1.
+Handles ByteTrack multi-person tracking and virtual line crossing entry/exit counting.
 
 ---
 
@@ -12,7 +12,7 @@ Week 2 of the Retail Intelligence System. This module adds ByteTrack multi-perso
 - Displays live IN / OUT totals and current occupancy estimate
 - Flashes a visual alert on every crossing event
 
-This module builds directly on `detection/`. The venv and model weights from Week 1 are reused.
+This module builds directly on `detection/`, reusing its dependencies and model weights.
 
 ---
 
@@ -34,9 +34,9 @@ Depends on `detection/` being present at `../detection/` for config imports.
 
 ## Setup
 
-This module reuses the venv from Week 1. No need to create a new one.
+This module reuses the environment and dependencies from detection.
 
-**1. Activate the existing venv**
+**1. Activate the Python virtual environment**
 
 ```bash
 source ../detection/venv/bin/activate
@@ -164,7 +164,7 @@ The info panel shows an `Occupancy` value calculated as `IN - OUT`. This is an e
 
 ## Validation Checklist
 
-Before moving on to Week 3 (heatmap + queue + demographics), confirm all of these work:
+Before integrating downstream analytics, confirm all of these work:
 
 - [ ] Each person has a Track ID label that stays consistent as they move
 - [ ] Track ID recovers after brief occlusion (person partially hidden then reappears)
@@ -180,12 +180,13 @@ If Track IDs are changing too frequently, increase `TRACK_BUFFER` in `config.py`
 
 ---
 
-## Next Steps
+## Downstream Integration
 
-Week 3 adds three analytics layers on top of this tracking pipeline:
+The `analytics/` module and `backend/` services add analytics layers on top of this tracking pipeline:
 
 - **Heatmap**: accumulates foot traffic positions into a color overlay showing the most visited zones
 - **Queue monitor**: counts persons inside a defined zone and triggers an alert above a threshold
-- **Demographic estimation**: DeepFace estimates age range and gender per detected face, aggregated into statistics without storing any identity
+- **Demographic estimation**: estimates age range and gender per detected face, aggregated into statistics without storing identity
+- **Zone-wise Dwell & Flow Friction**: computes dwell distributions and congestion risk metrics across store layouts
 
-The `TrackedPerson` class in `tracker.py` and the trajectory data in `PersonTracker.trajectories` are already structured to feed directly into the heatmap and zone analytics in Week 3 without modification.
+The `TrackedPerson` class in `tracker.py` and the trajectory data in `PersonTracker.trajectories` feed directly into the zone analytics and heatmap modules.

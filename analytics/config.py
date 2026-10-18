@@ -21,8 +21,8 @@ from tracking.config import (
 )
 
 # -- Override --
-WINDOW_NAME = "Retail Analytics - Week 3: Analytics"
-OUTPUT_PATH = "output_week3.mp4"
+WINDOW_NAME = "StorePulse AI - Analytics"
+OUTPUT_PATH = "output_analytics.mp4"
 
 # ============================================================
 # HEATMAP

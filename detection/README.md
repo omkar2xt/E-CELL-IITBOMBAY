@@ -1,6 +1,6 @@
-# detection
+# StorePulse AI — Person Detection Module
 
-Week 1 of the Retail Intelligence System. This module handles real-time person detection from video or webcam using YOLO11.
+Handles real-time person detection from video or webcam streams using YOLO11.
 
 ---
 
@@ -12,7 +12,7 @@ Week 1 of the Retail Intelligence System. This module handles real-time person d
 - Displays live person count and FPS in an info panel
 - Optionally saves the annotated output to a video file
 
-This module is intentionally scoped to detection only. Tracking, heatmap, and analytics are added in later weeks on top of this foundation.
+This module is intentionally scoped to core person detection. Multi-person tracking, heatmaps, zone dwell analytics, and layout simulation operate on top of this foundation.
 
 ---
 
@@ -107,7 +107,7 @@ For development and testing, start with `yolo11n.pt`.
 
 ## Validation Checklist
 
-Before moving on to Week 2 (tracking + counting), confirm all of these work:
+Before integrating downstream tracking and analytics, confirm all of these work:
 
 - [ ] Bounding boxes appear around every visible person
 - [ ] No significant false positives (chairs, bags, etc. should not be detected)
@@ -130,9 +130,9 @@ YOLO11 processes each frame as a grid. For each cell, it predicts:
 Output is a list of `Detection` objects, each containing:
 - `bbox` - coordinates `[x1, y1, x2, y2]` in pixels
 - `confidence` - float between 0.0 and 1.0
-- `center` - midpoint of the box (used by heatmap in Week 3)
+- `center` - midpoint of the box (used by spatial tracking and heatmaps)
 
-Detection alone cannot count people accurately across time. That requires tracking, which is added in Week 2.
+Detection alone cannot count people accurately across time. That requires tracking, which is handled in `tracking/`.
 
 ---
 
@@ -148,11 +148,11 @@ You do not need to train the model. YOLO11 is pre-trained on COCO which includes
 
 ---
 
-## Next Steps
+## Downstream Integration
 
-Week 2 adds ByteTrack multi-person tracking on top of this detection pipeline:
+The `tracking/` module adds ByteTrack multi-person tracking on top of this detection pipeline:
 - Each person gets a persistent Track ID across frames
 - Virtual line crossing for accurate entry/exit counting
 - Trajectory visualization
 
-The `Detection` dataclass in `detector.py` is already designed to accept a `track_id` field, so Week 2 integration requires no changes to this module.
+The `Detection` dataclass in `detector.py` is designed to feed cleanly into `TrackedPerson` in the tracking pipeline.

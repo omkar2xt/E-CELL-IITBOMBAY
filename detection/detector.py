@@ -1,8 +1,7 @@
 # detector.py
 # ============================================================
-# This class wraps YOLO11 to make it easy to use.
-# In the following weeks, we won't need to change this file -
-# just import and use it.
+# Person detection wrapper around YOLO11 for StorePulse AI.
+# Provides structured bounding box and confidence estimations.
 # ============================================================
 
 from ultralytics import YOLO
@@ -15,19 +14,16 @@ import config
 @dataclass
 class Detection:
     """
-    One detection = one person detected in the frame.
-
-    Why use dataclass?
-    To keep the data structured and easy to extend next week
-    (e.g. later adding track_id, age, gender, etc).
+    Structured representation of a single person detection in a video frame.
+    Supports downstream tracking, demographic analysis, and dwell mapping.
     """
     bbox: List[float]       # [x1, y1, x2, y2] - bounding box coordinates
-    confidence: float       # 0.0 - 1.0, how confident the model is that this is a "person"
-    class_id: int           # Always 0 (person), but kept for consistency
+    confidence: float       # 0.0 - 1.0, confidence score for person class
+    class_id: int           # Class index (0 for person)
 
     @property
     def center(self):
-        """Center point of the bounding box. Used later for heatmap (week 3)."""
+        """Center coordinates (x, y) of the bounding box for spatial tracking."""
         x1, y1, x2, y2 = self.bbox
         return (int((x1 + x2) / 2), int((y1 + y2) / 2))
 

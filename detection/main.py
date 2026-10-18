@@ -22,7 +22,7 @@ from visualizer import Visualizer
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Week 1: Person Detection Pipeline"
+        description="StorePulse AI - Person Detection Pipeline"
     )
     parser.add_argument(
         "--source",
@@ -84,7 +84,7 @@ def setup_video_writer(cap: cv2.VideoCapture, output_path: str):
 
 def print_controls():
     print("\n" + "="*50)
-    print("  Retail Analytics - Week 1: Detection")
+    print("  StorePulse AI - Person Detection Pipeline")
     print("="*50)
     print("  Keyboard controls:")
     print("  [Q] or [ESC] -> Quit")

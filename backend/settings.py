@@ -1,12 +1,33 @@
+# StorePulse AI — Backend Settings
+# Developer: Omkar Gurav
+
 import os
+from dotenv import load_dotenv
 
-# Video source path relative to backend directory
-# Defaulting to the same video used in analytics
-VIDEO_SOURCE = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'detection', 'vid', 'retail-cctv-footage.mp4'))
+load_dotenv()
 
-# How often to broadcast metrics via WebSocket (in frames)
-BROADCAST_INTERVAL = 5
+def _resolve_video_source(raw: str) -> str:
+    """Return int for webcam index, absolute path string for files."""
+    try:
+        return int(raw)
+    except (ValueError, TypeError):
+        # Try relative to project root first
+        abs_path = os.path.abspath(raw)
+        if not os.path.exists(abs_path):
+            # Fall back to path relative to this file's parent
+            abs_path = os.path.abspath(
+                os.path.join(os.path.dirname(__file__), '..', raw)
+            )
+        return abs_path
 
-# Port for FastAPI server
-PORT = 8000
-HOST = "0.0.0.0"
+VIDEO_SOURCE = _resolve_video_source(
+    os.getenv("VIDEO_SOURCE",
+               os.path.join(os.path.dirname(__file__), '..', 'detection', 'vid', 'retail-cctv-footage.mp4'))
+)
+
+HOST = os.getenv("HOST", "0.0.0.0")
+PORT = int(os.getenv("PORT", 8000))
+BROADCAST_INTERVAL = int(os.getenv("BROADCAST_INTERVAL", 5))
+DEMOGRAPHICS_ENABLED = os.getenv("DEMOGRAPHICS_ENABLED", "false").lower() == "true"
+QUEUE_ALERT_THRESHOLD = int(os.getenv("QUEUE_ALERT_THRESHOLD", 3))
+TRACKING_RETENTION_SECONDS = int(os.getenv("TRACKING_RETENTION_SECONDS", 3600))

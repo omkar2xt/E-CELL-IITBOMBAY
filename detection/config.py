@@ -26,7 +26,7 @@ CLASS_PERSON = 0                 # In COCO dataset, class index 0 = "person"
 VIDEO_SOURCE = 0                 # Default: webcam
 
 # --- Display ---
-WINDOW_NAME = "Retail Analytics - Week 1: Detection"
+WINDOW_NAME = "StorePulse AI - Detection"
 DISPLAY_FPS = True               # Show FPS in the top left corner
 DISPLAY_COUNT = True             # Show number of detected people
 DISPLAY_CONFIDENCE = True        # Show confidence score on each box
@@ -41,4 +41,4 @@ FONT_SCALE = 0.55
 
 # --- Output (optional) ---
 SAVE_OUTPUT = False              # Set True if you want to save the output video
-OUTPUT_PATH = "output_week1.mp4"
+OUTPUT_PATH = "output_detection.mp4"

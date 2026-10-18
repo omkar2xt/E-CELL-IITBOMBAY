@@ -1,6 +1,6 @@
 # main.py - analytics module
 # ============================================================
-# Entry point Week 3: Heatmap + Queue Monitor + Demographics
+# StorePulse AI - Heatmap, Queue, and Demographic Analytics
 #
 # Usage:
 #   python main.py --source video.mp4
@@ -29,7 +29,7 @@ from visualizer import AnalyticsVisualizer
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Week 3: Analytics Pipeline")
+    parser = argparse.ArgumentParser(description="StorePulse AI - Analytics Pipeline")
     parser.add_argument("--source", default=str(config.VIDEO_SOURCE))
     parser.add_argument("--conf", type=float, default=config.TRACK_THRESH)
     parser.add_argument("--save", action="store_true")
@@ -84,7 +84,7 @@ def setup_writer(cap, path):
 
 def print_controls():
     print("\n" + "="*52)
-    print("  Retail Analytics - Week 3: Analytics")
+    print("  StorePulse AI - Analytics Pipeline")
     print("="*52)
     print("  [Q] / [ESC]  Quit")
     print("  [P]          Pause / Resume")

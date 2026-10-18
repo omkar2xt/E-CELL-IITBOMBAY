@@ -1,17 +1,24 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import StreamingResponse
-from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
+# StorePulse AI — Application Entry Point
+# Developer: Omkar Gurav
+
+import time
 import cv2
 import asyncio
 import sys
 import os
 
-# Add root directory to sys.path so 'backend' import works regardless of where it's run from
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
+
+# Add root directory to sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from backend.ws_manager import manager
 from backend.pipeline import pipeline_runner
+from backend.routers import zones, layouts, analytics as analytics_router
+
 
 async def broadcast_worker():
     while True:
@@ -21,21 +28,29 @@ async def broadcast_worker():
             pipeline_runner.clear_latest_metrics()
         await asyncio.sleep(0.1)
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Start pipeline on startup
-    print("[App] Starting analytics pipeline...")
+    print("[StorePulse AI] Starting analytics pipeline...")
     pipeline_runner.start()
     task = asyncio.create_task(broadcast_worker())
     yield
-    # Stop pipeline on shutdown
     task.cancel()
-    print("[App] Stopping analytics pipeline...")
+    print("[StorePulse AI] Stopping analytics pipeline...")
     pipeline_runner.stop()
 
-app = FastAPI(title="Retail Analytics API", lifespan=lifespan)
 
-# Allow CORS for dashboard
+app = FastAPI(
+    title="StorePulse AI — Retail Intelligence API",
+    description=(
+        "StorePulse AI — Intelligent Retail Flow & What-If Layout Simulator. "
+        "Developer: Omkar Gurav."
+    ),
+    version="1.0.0",
+    lifespan=lifespan,
+)
+
+# CORS — allow dashboard
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -44,47 +59,70 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── Routers ────────────────────────────────────────────────────────────
+app.include_router(zones.router)
+app.include_router(layouts.router)
+app.include_router(analytics_router.router)
+
+
+# ── WebSocket ─────────────────────────────────────────────────────────
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
     try:
         while True:
-            # We just wait for messages, but we don't really expect any from the client
-            # The server pushes data to the client via manager.broadcast()
             data = await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
+
+# ── MJPEG stream ──────────────────────────────────────────────────────
 def frame_generator():
-    """Generator function that yields JPEG frames for MJPEG streaming."""
+    """Generator that yields JPEG frames for MJPEG streaming."""
     while True:
         frame = pipeline_runner.get_latest_snapshot()
         if frame is None:
             time.sleep(0.1)
             continue
-            
+
         ret, buffer = cv2.imencode('.jpg', frame)
         if not ret:
             continue
-            
+
         frame_bytes = buffer.tobytes()
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-               
-        # Throttle stream to ~15fps to save bandwidth
+
+        # Throttle to ~15fps
         time.sleep(1.0 / 15.0)
 
-import time
 
 @app.get("/snapshot")
 async def get_snapshot():
-    """Returns an MJPEG stream of the latest heatmap frames."""
+    """MJPEG stream of the processed frame with heatmap overlays."""
     return StreamingResponse(
         frame_generator(),
         media_type="multipart/x-mixed-replace; boundary=frame"
     )
 
+
+@app.get("/health")
+async def health():
+    """Health check endpoint."""
+    return {
+        "status": "ok",
+        "product": "StorePulse AI",
+        "version": "1.0.0",
+        "developer": "Omkar Gurav",
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     from backend import settings
-    uvicorn.run("backend.main:app", host=settings.HOST, port=settings.PORT, reload=True)
+    uvicorn.run(
+        "backend.main:app",
+        host=settings.HOST,
+        port=settings.PORT,
+        reload=False,
+    )

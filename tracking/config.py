@@ -28,8 +28,8 @@ from detection.config import (
 )
 
 # -- Override --
-WINDOW_NAME = "Retail Analytics - Week 2: Tracking + Counting"
-OUTPUT_PATH = "output_week2.mp4"
+WINDOW_NAME = "StorePulse AI - Tracking & Flow"
+OUTPUT_PATH = "output_tracking.mp4"
 
 # -- ByteTrack settings --
 # track_thresh: minimum confidence to directly assign to an active track

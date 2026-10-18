@@ -1,276 +1,213 @@
-# Retail Intelligence System
+# StorePulse AI — Intelligent Retail Flow & What-If Layout Simulator
 
-A real-time video analytics platform for retail environments. It counts visitors, maps foot traffic heatmaps, monitors checkout queue lengths, and estimates visitor demographics - all without storing any personal identity.
+> **Transforming retail camera feeds into actionable customer flow intelligence and interactive spatial layout optimization.**
 
-Built to cover production-ready computer vision concepts: object detection, multi-person tracking, zone analytics, heatmap generation, and a real-time streaming dashboard.
-
----
-
-## Live Dashboard Preview
-
-![Live Dashboard](backend/result/image.png)
-
-*Real-time analytics dashboard showing entry/exit counts, queue occupancy, foot traffic heatmap, and FPS metrics.*
+**Developer & Architect:** Omkar Gurav  
+**Project:** StorePulse AI  
+**License:** MIT  
 
 ---
 
-## Project Structure
+## 1. Overview & Problem Statement
+
+Physical retail operators frequently make layout modifications—moving shelves, shifting promotional displays, and relocating checkout lanes—without quantitative data on how these changes affect customer movement, dwell times, and bottleneck formation.
+
+**StorePulse AI** bridges this gap by pairing a real-time computer vision pipeline with a **What-If Layout Simulator**:
+1. **Observe Reality:** Real-time YOLO11 detection and ByteTrack tracking continuously monitor store entrances, checkout queues, and custom polygon zones, calculating dwell times, transitions, and multi-factor **Flow Friction Scores**.
+2. **Simulate Alternatives:** An interactive SVG-based floor-plan editor allows managers to test proposed spatial rearrangements (e.g., widening aisles, moving endcaps, shifting registers) before physical remodeling.
+3. **Compare Scenarios:** Quantitative baseline-vs-proposed comparisons estimate differences in walking distance, route conflict risks, and space utilization with clear heuristic assumptions.
+
+---
+
+## 2. Key Features
+
+### 👁️ Computer Vision & Tracking
+- **YOLO11 Person Detection:** High-speed anchor-free object detection for individuals in overhead and angled CCTV views.
+- **ByteTrack Multi-Object Tracking:** Persistent numeric tracking IDs across frames using Kalman filters and IoU association.
+- **Directional Line Counter:** Virtual entrance/exit crossing line tracking store occupancy without double-counting.
+- **Foot-Traffic Heatmaps:** 2D Gaussian kernel accumulation revealing high-density customer browsing hotspots.
+
+### 📍 Spatial Analytics & Flow Friction
+- **Polygon Store Zone Dwell Analytics:** Ray-casting polygon geometry tracking entries, occupancy, average/median/max dwell times across customizable store zones (Entrance, Checkout, Grocery, Electronics, Promo).
+- **Zone-to-Zone Transition Matrix:** Captures paths and flow vectors between departments.
+- **Flow Friction Score Engine (0–100):** Multi-factor weighted decision metric combining occupancy ratios, dwell saturation, and queue build-up to highlight congestion.
+
+### 📐 Interactive What-If Layout Simulator (Signature Feature)
+- **Interactive Floor Plan Canvas:** Full drag-and-drop, resize, rotate, and delete controls for virtual shelves, checkout counters, and obstacles.
+- **Heuristic Layout Simulation Engine:** Calculates walking distance to demand-weighted zones, space utilization percentages, and route conflict risks.
+- **Side-by-Side Scenario Comparison:** Direct metric-by-metric delta comparison table between baseline and proposed designs with directional badges (`BETTER`, `WORSE`, `SAME`).
+
+### 🛡️ Privacy by Design
+- **No Facial Recognition or Biometric ID:** No identity tracking, facial embeddings, or demographic profiling enabled by default.
+- **Ephemeral Tracking:** Track IDs exist purely in temporary RAM and are purged upon exit.
+- **Zero Video Retention:** Video frames are processed in-memory in real time; raw video is never persisted.
+
+---
+
+## 3. Architecture & Tech Stack
 
 ```
-retail_analytics/
-├── detection/          Person detection with YOLO11
-├── tracking/           Multi-person tracking + entry/exit counting
-├── analytics/          Heatmap, queue monitor, demographic estimation
-├── backend/            FastAPI server (WebSocket + MJPEG stream)
-└── dashboard/          React live dashboard
+                   CCTV Video / RTSP / Webcam
+                               │
+                               ▼
+                    YOLO11 Person Detection
+                               │
+                               ▼
+                       ByteTrack Tracker
+                               │
+             ┌─────────────────┼─────────────────┐
+             ▼                 ▼                 ▼
+       Line Counter       Heatmap Engine   Zone Analytics
+      (Entries/Exits)    (2D Accumulator) (Polygon Dwell)
+             │                 │                 │
+             └─────────────────┼─────────────────┘
+                               │
+                               ▼
+                   Flow Friction Score Engine
+                               │
+                               ▼
+                    FastAPI Backend (Python)
+                     ├── WebSocket  (/ws)
+                     ├── MJPEG Feed (/snapshot)
+                     └── REST APIs  (/api/zones, /api/layouts, /api/analytics)
+                               │
+                               ▼
+                  React 19 Dashboard (Vite)
+                     ├── 10 Operational Views
+                     ├── Interactive SVG Simulator
+                     └── Scenario Comparison Matrix
 ```
 
-Each module is standalone and builds on top of the previous one. Later modules import components from earlier ones rather than rewriting them.
+### Tech Stack Details
+
+| Layer | Technologies |
+|---|---|
+| **Computer Vision** | YOLO11 (Ultralytics), ByteTrack, OpenCV |
+| **Backend & APIs** | Python 3.10–3.14, FastAPI, Uvicorn, WebSockets, Pydantic |
+| **Frontend UI** | React 19, Vite 6, React Router v7, Recharts, Lucide Icons |
+| **Testing & Quality**| Pytest, Starlette TestClient, ESLint |
 
 ---
 
-## Features
-
-| Feature | Module |
-|---------|--------|
-| Person detection with YOLO11 | `detection/` |
-| Multi-person tracking (ByteTrack) | `tracking/` |
-| Entry / exit counting via virtual line | `tracking/` |
-| Foot traffic heatmap | `analytics/` |
-| Checkout queue monitoring + alerts | `analytics/` |
-| Age / gender estimation (no identity stored) | `analytics/` |
-| Real-time WebSocket backend (FastAPI) | `backend/` |
-| Live MJPEG video stream endpoint | `backend/` |
-| React live dashboard | `dashboard/` |
-
----
-
-## Tech Stack
-
-| Layer | Technology |
-|-------|------------|
-| Detection | YOLO11 (Ultralytics) |
-| Tracking | ByteTrack |
-| Video processing | OpenCV |
-| Demographic estimation | OpenCV DNN + Caffe (Levi & Hassner, 2015) - no TensorFlow required |
-| Deep learning runtime | PyTorch (detection/tracking), OpenCV DNN (demographics) |
-| Backend | FastAPI + WebSocket + MJPEG StreamingResponse |
-| Frontend | React + Vite + Recharts |
-
----
-
-## Pipeline Architecture
-
-```
-Video / Webcam
-      │
-      ▼
-  YOLO11 Detection       ← locate every person in the frame
-      │
-      ▼
-  ByteTrack              ← assign persistent Track ID per person
-      │
-      ├─────────────┬─────────────┬─────────────┐
-      ▼             ▼             ▼             ▼
-  Line Counter   Heatmap    Queue Monitor   DeepFace
-  (IN / OUT)     (accumulate  (zone density  (age/gender
-                  positions)   + alerts)      estimation)
-      │             │             │             │
-      └─────────────┴─────────────┴─────────────┘
-                          │
-                          ▼
-                  FastAPI Backend
-                  ├── /ws          WebSocket - JSON metrics
-                  └── /snapshot    MJPEG stream
-                          │
-                          ▼
-                  React Dashboard
-```
-
----
-
-## Modules
-
-### `detection/`
-
-Reads video frames and detects every person using YOLO11. Outputs bounding boxes with confidence scores and a live person count overlay.
-
-### `tracking/`
-
-Adds ByteTrack on top of detection. Each person gets a persistent Track ID across frames. A configurable virtual line at the entrance counts entries and exits without double-counting.
-
-### `analytics/`
-
-Three analytics layers on top of tracking output:
-
-- **Heatmap** - Accumulates foot traffic positions using Gaussian kernels, producing a colored density overlay showing the most visited zones.
-- **Queue Monitor** - Counts persons inside a defined zone (e.g. checkout area). Triggers a visual alert when the queue exceeds a configurable threshold.
-- **Demographic estimation** - Age range and gender estimated from face crops using OpenCV DNN with pre-trained Caffe models (Levi & Hassner, 2015). No face embeddings or identities are stored; only aggregate statistics are kept.
-
-  > **Note on library choice:** The original design used DeepFace for this feature. However, DeepFace depends on TensorFlow, which has no Python 3.14 support as of mid-2025. We switched to OpenCV DNN + Caffe models, which are TensorFlow-free and work on any Python version where OpenCV is available. Model weights (~88MB) are auto-downloaded on first run.
-
-### `backend/` + `dashboard/`
-
-Wraps the full pipeline in a FastAPI server:
-
-- **`/ws`** - WebSocket endpoint that broadcasts JSON metrics (counts, queue status, FPS, demographics) every N frames
-- **`/snapshot`** - MJPEG stream of the processed frame with heatmap and zone overlays
-
-A React frontend connects to both endpoints and displays real-time stat cards, an area chart of queue history, and a live video feed.
-
----
-
-## Model Selection - Key Finding
-
-During development, two different YOLO11 model sizes were tested on two very different camera angles. The results revealed an important insight about model selection for CCTV use cases.
-
-### Test 1 - Outdoor intersection (wide-angle CCTV view)
-
-`yolo11x.pt` with `confidence = 0.4` on a wide-angle outdoor camera:
-
-![Outdoor CCTV detection](detection/result/yolo11x_pt_0,4/image2.png)
-
-**Result: only 2 persons detected.** At this camera angle, people appear very small in the frame. The model struggles because the person features at that scale are too low-resolution for reliable detection.
-
-### Test 2 - Indoor retail store (closer overhead view)
-
-`yolo11x.pt` with `confidence = 0.4` on an indoor retail store camera:
-
-![Indoor retail detection](detection/result/yolo11x_pt_0,4/image1.png)
-
-**Result: accurate detections across the full frame.** People occupy a much larger portion of the frame, providing enough pixel detail for the model to work confidently.
-
-### Takeaway
-
-> **`yolo11x.pt` with `confidence = 0.4` works well for indoor overhead views where people appear large.  
-> For wide-angle CCTV (outdoor intersections, large plazas), people are too small - consider using a smaller confidence threshold (`0.2–0.3`) or a model fine-tuned on aerial/CCTV datasets.**
-
-This project uses `yolo11n.pt` (nano) by default for real-time performance on CPU/GPU. You can swap the model in `tracking/config.py` → `MODEL_NAME`.
-
----
-
-## Getting Started
+## 4. Getting Started
 
 ### Prerequisites
+- **Python:** 3.10 to 3.14 installed
+- **Node.js:** v18+ and `npm` installed
+- **Git**
 
-- Python 3.10–3.13 (Python 3.14 is supported but `DeepFace` requires 3.11/3.12 for demographic estimation)
-- Node.js v18+
-- Git
+### Installation
 
-### 1. Clone the repo
-
+#### 1. Clone the repository
 ```bash
-git clone <repo-url>
-cd retail_analytics
+git clone https://github.com/omkargurav/storepulse-ai.git
+cd storepulse-ai
 ```
 
-### 2. Set up Python environment
-
+#### 2. Configure Environment
+Copy `.env.example` to `.env`:
 ```bash
-cd detection
-python -m venv venv
-source venv/bin/activate   # Windows: venv\Scripts\activate
-pip install -r requirements.txt
+cp .env.example .env
+```
+*Windows Powershell:*
+```powershell
+Copy-Item .env.example .env
 ```
 
-### 3. Run detection only
-
+#### 3. Python Backend Setup
 ```bash
-python main.py --source 0              # webcam
-python main.py --source video.mp4      # video file
-```
-
-### 4. Run the full analytics pipeline
-
-```bash
-cd ../analytics
-source ../detection/venv/bin/activate
-python main.py --source ../detection/vid/retail-cctv-footage.mp4 --no-demo
-```
-
-> `--no-demo` disables DeepFace if it's not installed. Remove the flag once DeepFace is available.
-
-### 5. Run the backend + dashboard
-
-**Terminal 1 - FastAPI backend:**
-
-```bash
-# From repo root
-source detection/venv/bin/activate
+# Install backend dependencies
 pip install -r backend/requirements.txt
-python backend/main.py
-# Server runs at http://localhost:8000
 ```
 
-**Terminal 2 - React dashboard:**
-
+#### 4. Frontend Dashboard Setup
 ```bash
 cd dashboard
 npm install
-npm run dev
-# Dashboard at http://localhost:5173
+cd ..
 ```
 
 ---
 
-## Configuration
+## 5. Running the Application
 
-All zone coordinates and thresholds are in `analytics/config.py`. Values use **ratios (0.0–1.0)** relative to the frame, so they work at any resolution.
+### Step 1: Start the FastAPI Backend
+```bash
+python backend/main.py
+```
+- API server runs at: `http://localhost:8000`
+- Interactive API Docs (Swagger): `http://localhost:8000/docs`
+- MJPEG Live Video Stream: `http://localhost:8000/snapshot`
+- Real-time WebSocket: `ws://localhost:8000/ws`
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `QUEUE_ZONE` | `(x1, y1, x2, y2)` ratio for the checkout monitoring zone | Left-side cashier area |
-| `QUEUE_ALERT_THRESHOLD` | Number of persons in zone before alert triggers | `3` |
-| `HEATMAP_RADIUS` | Gaussian kernel radius for heatmap blobs | `25` |
-| `HEATMAP_ALPHA` | Heatmap overlay transparency | `0.6` |
+*(Note: If no physical camera or video file is present, the backend automatically runs in safe demo mode with synthetic simulation data clearly labeled.)*
 
-The counting line position is set in `analytics/main.py` → `build_line()`.
-
----
-
-## Privacy Design
-
-This system is designed to analyze behavior without identifying individuals:
-
-- Face recognition is **disabled**. DeepFace is used for attribute estimation only (age range, gender).
-- No face embeddings are stored or logged.
-- No individual trajectories are persisted after a session ends.
-- Only aggregate statistics (counts, distributions, heatmap density) are used.
+### Step 2: Start the React Dashboard
+In a second terminal:
+```bash
+cd dashboard
+npm run dev
+```
+- Open browser at: `http://localhost:5173`
 
 ---
 
-## CV Concepts Covered
+## 6. How to Use the What-If Simulator
 
-- Object detection (YOLO11, anchor-free head, NMS)
-- Multi-object tracking (ByteTrack, IoU + Kalman filter association)
-- People counting (virtual line crossing, directional side detection)
-- Heatmap generation (Gaussian accumulation on 2D NumPy array)
-- Zone analytics (region of interest, occupancy threshold, alert system)
-- Demographic estimation (privacy-preserving facial attribute analysis)
-- Real-time video pipeline (frame loop, background threading, WebSocket broadcast, MJPEG streaming)
-
----
-
-## Known Limitations
-
-| Limitation | Notes |
-|-----------|-------|
-| Demographic accuracy lower than DeepFace | Caffe models (2015) are less accurate than modern deep learning; sufficient for trend analysis |
-| DeepFace not compatible with Python 3.14 | TensorFlow has no Python 3.14 build; switched to OpenCV DNN as TF-free alternative |
-| Wide-angle CCTV reduces detection accuracy | People are too small at high zoom-out levels |
-| Dashboard video feed is MJPEG (1 req/s) | Not true real-time video; suitable for analytics display |
-| Model download required on first run | `analytics/models/` (~88MB) is auto-downloaded via gdown on first startup |
+1. Navigate to **What-If Simulator** (`/simulator`) in the dashboard sidebar.
+2. The current **Baseline Layout** is loaded automatically on the SVG canvas.
+3. **Add Elements:** Click **+ Shelf**, **+ Display**, **+ Checkout**, or **+ Obstacle** in the top toolbar to insert store fixtures.
+4. **Edit Layout:** Click any element to select it; drag to reposition, use handle controls to resize, or adjust dimensions and rotation in the property inspector panel.
+5. **Save Layout:** Click **Save Proposed** to persist the new layout with a descriptive name.
+6. **Compare Scenarios:** Navigate to **Scenario Comparison** (`/comparison`) to review walking distance changes, space utilization deltas, and route conflict scores.
 
 ---
 
-## Test Videos & Datasets
+## 7. Testing & Validation
 
-YOLO11 is pre-trained on **COCO** (Common Objects in Context), which includes the `person` class - no additional training is required. The videos below were used for development and validation.
+Run the automated test suite covering zone analytics, dwell timers, flow friction formulas, layout CRUD, and API endpoints:
 
-| Source | Purpose | Link |
-|--------|---------|------|
-| COCO Dataset | Pre-training base for YOLO11 person detection | [cocodataset.org](https://cocodataset.org) |
-| HD CCTV Retail Store Footage | Indoor detection, queue monitoring, heatmap validation | [YouTube - HDCCTVCameras.net](https://youtu.be/KMJS66jBtVQ?si=G00eXl5hKCCCmqAo) |
-| One Minute in Hong Kong - Pedestrian Crossing | Wide-angle outdoor CCTV simulation | [YouTube - penguinsix](https://youtu.be/KMJS66jBtVQ) |
+```bash
+python -m pytest tests -v
+```
 
-> The retail store video (iProx CCTV, Hikvision NVR) is a real-world 3MP/4MP IP camera installation from a high street homecare products store. It closely represents actual deployment conditions for this system.
+**Results:**
+- `19 passed in 7.21s (100% pass rate)`
+- Production build validation: `npm run build` completed cleanly with Vite in 10.41s.
+
+For detailed test coverage and validation methodology, refer to [`docs/VALIDATION.md`](docs/VALIDATION.md).
+
+---
+
+## 8. Documentation Index
+
+- [Implementation Audit & Changelog](docs/IMPLEMENTATION_AUDIT.md)
+- [System Architecture Specification](docs/ARCHITECTURE.md)
+- [REST & WebSocket API Reference](docs/API.md)
+- [Privacy & Responsible Analytics Policy](docs/PRIVACY.md)
+- [Testing & Validation Report](docs/VALIDATION.md)
+
+---
+
+## 9. Known Limitations
+
+- **Camera Perspective:** High-mounted indoor cameras yield the highest tracking accuracy. Ultra-wide outdoor cameras where pedestrians appear under $20\times20$ pixels have reduced detection confidence.
+- **Heuristic Layout Engine:** Spatial simulation outputs are mathematical directional approximations based on geometry and customer demand weights, not deterministic guarantees of physical shopper behavior.
+- **Speed Calibration:** Physical speed calculation in meters/second requires extrinsic homography plane calibration; uncalibrated setups measure pixel displacement.
+
+---
+
+## 10. Developer & Ownership
+
+**Product:** StorePulse AI — Intelligent Retail Flow & What-If Layout Simulator  
+**Developer & Architect:** Omkar Gurav  
+**License:** MIT  
+
+### Technology Stack & Open-Source Libraries
+StorePulse AI utilizes the following open-source frameworks:
+- **Ultralytics YOLO11** for computer vision object detection
+- **ByteTrack** for multi-object association and tracking
+- **OpenCV** for image processing and matrix transformations
+- **FastAPI & Uvicorn** for asynchronous ASGI backend and WebSocket broadcast
+- **React 19 & Vite** for responsive operations interface
+- **Recharts** for real-time data visualization

@@ -71,7 +71,7 @@ class Visualizer:
             label = f"{det.confidence:.0%}"  # e.g.: "87%"
             self._draw_label(frame, label, x1, y1, color)
 
-        # Center point - useful for tracking debugging (week 2)
+        # Center point indicator for tracking and heatmaps
         cx, cy = det.center
         cv2.circle(frame, (cx, cy), 3, color, -1)
 

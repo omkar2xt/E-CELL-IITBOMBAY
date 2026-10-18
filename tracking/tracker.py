@@ -20,7 +20,7 @@ import config as config
 class TrackedPerson:
     """
     A single person currently being tracked.
-    Extends Detection (week 1) with additional tracking info.
+    Extends person detection with persistent ID and tracking telemetry.
     """
     track_id: int               # Unique ID consistent across frames
     bbox: List[float]           # [x1, y1, x2, y2]

@@ -1,86 +1,101 @@
-import React from 'react';
+// App.jsx — StorePulse AI
+// Product: StorePulse AI — Intelligent Retail Flow & What-If Layout Simulator
+// Developer: Omkar Gurav
+import React, { useState, useEffect } from 'react';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import Sidebar from './components/Sidebar';
+import Overview from './pages/Overview';
+import LiveAnalytics from './pages/LiveAnalytics';
+import ZoneAnalytics from './pages/ZoneAnalytics';
+import MovementFlow from './pages/MovementFlow';
+import Heatmaps from './pages/Heatmaps';
+import QueueMonitoring from './pages/QueueMonitoring';
+import FlowFriction from './pages/FlowFriction';
+import WhatIfSimulator from './pages/WhatIfSimulator';
+import ScenarioComparison from './pages/ScenarioComparison';
+import SettingsPage from './pages/Settings';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useQueueHistory } from './hooks/useQueueHistory';
-import { StatCard } from './components/StatCard';
-import { QueueChart } from './components/QueueChart';
-import { DemoPanel } from './components/DemoPanel';
-import { LiveFeed } from './components/LiveFeed';
-import { Users, LogIn, LogOut, Activity, AlertTriangle } from 'lucide-react';
 import './index.css';
 
 const WS_URL = 'ws://localhost:8000/ws';
-const STREAM_URL = 'http://localhost:8000/snapshot';
 
-function App() {
-  const { data, status } = useWebSocket(WS_URL);
-  const queueHistory = useQueueHistory(data?.queue_count);
+const PAGE_TITLES = {
+  '/':           'Overview',
+  '/live':       'Live Analytics',
+  '/zones':      'Zone Analytics',
+  '/movement':   'Movement Flow',
+  '/heatmaps':   'Heatmaps',
+  '/queue':      'Queue Monitoring',
+  '/friction':   'Flow Friction',
+  '/simulator':  'What-If Simulator',
+  '/comparison': 'Scenario Comparison',
+  '/settings':   'Settings & Privacy',
+};
+
+function PageHeader({ path, wsStatus, data }) {
+  const title = Object.entries(PAGE_TITLES).find(([p]) => path === p)?.[1] || 'StorePulse AI';
 
   return (
-    <div className="dashboard-container">
-      {/* Header */}
-      <header className="dashboard-header">
-        <div className="header-title">
-          <h1>Retail Analytics</h1>
-          <div className={`status-badge ${status}`}>
-            <span className="status-dot"></span>
-            {status === 'connected' ? 'LIVE' : status.toUpperCase()}
-          </div>
-        </div>
-        <div className="header-meta">
-          {data && <span>FPS: {data.fps.toFixed(1)}</span>}
-        </div>
-      </header>
-
-      {/* Alert Banner */}
-      {data?.queue_alert && (
-        <div className="alert-banner pulse-bg">
-          <AlertTriangle size={24} />
-          <span>
-            <strong>QUEUE ALERT!</strong> Checkout queue exceeded threshold ({data.queue_count} people). Please open another register!
+    <div className="page-header">
+      <h2>{title}</h2>
+      <div className="header-right">
+        {data?.is_demo && (
+          <span className="demo-badge">DEMO MODE</span>
+        )}
+        {data && !data.is_demo && (
+          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+            FPS: {data.fps?.toFixed(1) ?? '—'} · Frame #{data.frame_id}
           </span>
+        )}
+        <div className={`status-pill ${wsStatus}`}>
+          <span className="status-dot" />
+          {wsStatus === 'connected' ? 'LIVE' : wsStatus.toUpperCase()}
         </div>
-      )}
-
-      {/* Main Content */}
-      <main className="dashboard-main">
-        {/* Left Column: Video & Demographics */}
-        <div className="col-left">
-          <LiveFeed streamUrl={STREAM_URL} />
-          
-          <div className="metrics-grid">
-            <StatCard 
-              title="Total In" 
-              value={data?.count_in || 0} 
-              icon={LogIn} 
-            />
-            <StatCard 
-              title="Total Out" 
-              value={data?.count_out || 0} 
-              icon={LogOut} 
-            />
-            <StatCard 
-              title="Occupancy" 
-              value={data?.occupancy || 0} 
-              subtitle="Current inside"
-              icon={Users} 
-            />
-            <StatCard 
-              title="Cashier Queue" 
-              value={data?.queue_count || 0} 
-              alert={data?.queue_alert}
-              icon={Activity} 
-            />
-          </div>
-        </div>
-
-        {/* Right Column: Charts & Data */}
-        <div className="col-right">
-          <QueueChart data={queueHistory} />
-          {data?.demographics && <DemoPanel demographics={data.demographics} />}
-        </div>
-      </main>
+      </div>
     </div>
   );
 }
 
-export default App;
+function AppInner() {
+  const { data, status: wsStatus } = useWebSocket(WS_URL);
+  const queueHistory = useQueueHistory(data?.queue_count);
+  const [path, setPath] = useState(window.location.pathname);
+
+  useEffect(() => {
+    const update = () => setPath(window.location.pathname);
+    window.addEventListener('popstate', update);
+    return () => window.removeEventListener('popstate', update);
+  }, []);
+
+  return (
+    <div className="app-shell">
+      <Sidebar wsStatus={wsStatus} queueAlert={data?.queue_alert} />
+      <div className="main-area">
+        <PageHeader path={path} wsStatus={wsStatus} data={data} />
+        <div className="page-content">
+          <Routes>
+            <Route path="/" element={<Overview data={data} queueHistory={queueHistory} wsStatus={wsStatus} />} />
+            <Route path="/live" element={<LiveAnalytics data={data} queueHistory={queueHistory} />} />
+            <Route path="/zones" element={<ZoneAnalytics wsData={data} />} />
+            <Route path="/movement" element={<MovementFlow />} />
+            <Route path="/heatmaps" element={<Heatmaps wsStatus={wsStatus} />} />
+            <Route path="/queue" element={<QueueMonitoring data={data} queueHistory={queueHistory} />} />
+            <Route path="/friction" element={<FlowFriction />} />
+            <Route path="/simulator" element={<WhatIfSimulator />} />
+            <Route path="/comparison" element={<ScenarioComparison />} />
+            <Route path="/settings" element={<SettingsPage />} />
+          </Routes>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <AppInner />
+    </BrowserRouter>
+  );
+}
