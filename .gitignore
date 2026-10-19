@@ -223,3 +223,9 @@ vid/
 
 *.ptdetection/yolo11x.pt
 *.pt
+
+# Runtime data & alert snapshots
+backend/data/snapshots/*.jpg
+!backend/data/snapshots/.gitkeep
+backend/data/*.db*
+
