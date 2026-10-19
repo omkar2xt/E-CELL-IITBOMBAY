@@ -14,9 +14,10 @@ import FlowFriction from './pages/FlowFriction';
 import WhatIfSimulator from './pages/WhatIfSimulator';
 import ScenarioComparison from './pages/ScenarioComparison';
 import SettingsPage from './pages/Settings';
+import AlertLogs from './pages/AlertLogs';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useQueueHistory } from './hooks/useQueueHistory';
-import { WS_URL } from './config';
+import { WS_URL, API_BASE } from './config';
 import './index.css';
 
 const PAGE_TITLES = {
@@ -27,20 +28,39 @@ const PAGE_TITLES = {
   '/heatmaps':   'Heatmaps',
   '/queue':      'Queue Monitoring',
   '/friction':   'Flow Friction',
+  '/alerts':     'Alert Evidence Logs',
   '/simulator':  'What-If Simulator',
   '/comparison': 'Scenario Comparison',
   '/settings':   'Settings & Privacy',
 };
 
-function PageHeader({ path, wsStatus, data }) {
+function PageHeader({ path, wsStatus, data, onToggleMode }) {
   const title = Object.entries(PAGE_TITLES).find(([p]) => path === p)?.[1] || 'StorePulse AI';
 
   return (
     <div className="page-header">
       <h2>{title}</h2>
       <div className="header-right">
-        {data?.is_demo && (
-          <span className="demo-badge">DEMO MODE</span>
+        {data && (
+          <button
+            onClick={onToggleMode}
+            className="mode-toggle-pill"
+            title="Click to toggle between Demo Simulation and CCTV Video"
+            style={{
+              background: data.is_demo ? 'rgba(245,158,11,0.15)' : 'rgba(99,102,241,0.15)',
+              color: data.is_demo ? '#fbbf24' : '#818cf8',
+              border: `1px solid ${data.is_demo ? 'rgba(245,158,11,0.35)' : 'rgba(99,102,241,0.35)'}`,
+              borderRadius: '20px',
+              padding: '4px 12px',
+              fontSize: '11px',
+              fontWeight: '600',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}>
+            {data.is_demo ? '⚡ DEMO SIMULATION' : '📹 CCTV VIDEO'}
+          </button>
         )}
         {data && !data.is_demo && (
           <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
@@ -67,11 +87,24 @@ function AppInner() {
     return () => window.removeEventListener('popstate', update);
   }, []);
 
+  const handleToggleMode = async () => {
+    try {
+      const target = data?.is_demo ? 'video' : 'demo';
+      await fetch(`${API_BASE}/api/pipeline/source`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source: target }),
+      });
+    } catch (err) {
+      console.error('[Pipeline] Toggle mode error', err);
+    }
+  };
+
   return (
     <div className="app-shell">
       <Sidebar wsStatus={wsStatus} queueAlert={data?.queue_alert} />
       <div className="main-area">
-        <PageHeader path={path} wsStatus={wsStatus} data={data} />
+        <PageHeader path={path} wsStatus={wsStatus} data={data} onToggleMode={handleToggleMode} />
         <div className="page-content">
           <Routes>
             <Route path="/" element={<Overview data={data} queueHistory={queueHistory} wsStatus={wsStatus} />} />
@@ -81,6 +114,7 @@ function AppInner() {
             <Route path="/heatmaps" element={<Heatmaps wsStatus={wsStatus} />} />
             <Route path="/queue" element={<QueueMonitoring data={data} queueHistory={queueHistory} />} />
             <Route path="/friction" element={<FlowFriction />} />
+            <Route path="/alerts" element={<AlertLogs wsStatus={wsStatus} />} />
             <Route path="/simulator" element={<WhatIfSimulator />} />
             <Route path="/comparison" element={<ScenarioComparison />} />
             <Route path="/settings" element={<SettingsPage />} />

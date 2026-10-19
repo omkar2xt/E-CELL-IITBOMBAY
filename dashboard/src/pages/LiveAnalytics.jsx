@@ -7,8 +7,9 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from 'recharts';
 import { Users, LogIn, LogOut, Activity, Zap } from 'lucide-react';
+import { API_BASE } from '../config';
 
-const STREAM_URL = 'http://localhost:8000/snapshot';
+const STREAM_URL = `${API_BASE}/snapshot`;
 
 export default function LiveAnalytics({ data, queueHistory }) {
   const [showFeed, setShowFeed] = useState(true);
@@ -50,14 +51,25 @@ export default function LiveAnalytics({ data, queueHistory }) {
           </div>
           {showFeed ? (
             <div className="live-feed">
-              {!data?.is_demo ? (
-                <>
-                  <img src={STREAM_URL} alt="MJPEG stream" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  <div className="live-feed-overlay"><span className="live-dot" />LIVE</div>
-                </>
-              ) : (
-                <div className="feed-placeholder"><Camera size={40} style={{ opacity: 0.2 }} /><div>Demo Mode</div></div>
-              )}
+              <img
+                src={STREAM_URL}
+                alt="Live Camera Stream"
+                style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                onError={e => {
+                  console.warn('[Feed] LiveAnalytics stream disconnected');
+                  e.target.style.display = 'none';
+                  const fb = document.getElementById('live-feed-placeholder');
+                  if (fb) fb.style.display = 'flex';
+                }}
+              />
+              <div id="live-feed-placeholder" className="feed-placeholder" style={{ display: 'none' }}>
+                <Camera size={40} style={{ opacity: 0.2 }} />
+                <div>Stream Connecting...</div>
+              </div>
+              <div className="live-feed-overlay">
+                <span className="live-dot" style={{ background: data?.is_demo ? '#f59e0b' : '#10b981' }} />
+                {data?.is_demo ? 'DEMO SIMULATION' : 'LIVE CAMERA'}
+              </div>
             </div>
           ) : (
             <div style={{ padding: 20, color: 'var(--text-muted)', fontSize: 13 }}>Feed hidden</div>

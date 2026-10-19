@@ -4,9 +4,9 @@ import React from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Radio, MapPin, Navigation, Flame,
-  ShoppingCart, Zap, Layout, BarChart3, Settings,
-  Activity
+  ShoppingCart, Zap, Layout, BarChart3, Settings, Bell
 } from 'lucide-react';
+import logoEmblem from '../assets/logo-emblem.png';
 
 const navItems = [
   { section: 'Monitor' },
@@ -17,6 +17,7 @@ const navItems = [
   { to: '/heatmaps', icon: Flame, label: 'Heatmaps' },
   { to: '/queue', icon: ShoppingCart, label: 'Queue Monitoring' },
   { to: '/friction', icon: Zap, label: 'Flow Friction' },
+  { to: '/alerts', icon: Bell, label: 'Alert Evidence Logs' },
   { section: 'Simulator' },
   { to: '/simulator', icon: Layout, label: 'What-If Simulator' },
   { to: '/comparison', icon: BarChart3, label: 'Scenario Compare' },
@@ -29,7 +30,7 @@ export default function Sidebar({ wsStatus, queueAlert }) {
     <aside className="sidebar">
       <div className="sidebar-logo">
         <div className="logo-icon">
-          <Activity size={20} color="white" />
+          <img src={logoEmblem} alt="StorePulse AI" />
         </div>
         <h1>StorePulse AI</h1>
         <div className="logo-sub">Retail Intelligence</div>
@@ -50,7 +51,7 @@ export default function Sidebar({ wsStatus, queueAlert }) {
             >
               <Icon size={16} className="nav-icon" />
               <span>{item.label}</span>
-              {item.to === '/queue' && queueAlert && (
+              {(item.to === '/queue' || item.to === '/alerts') && queueAlert && (
                 <span className="nav-badge">!</span>
               )}
             </NavLink>

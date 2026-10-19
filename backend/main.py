@@ -17,7 +17,8 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from backend.ws_manager import manager
 from backend.pipeline import pipeline_runner
-from backend.routers import zones, layouts, analytics as analytics_router
+from backend.routers import zones, layouts, analytics as analytics_router, alerts as alerts_router
+from backend.database.init_db import init_database
 
 
 async def broadcast_worker():
@@ -31,6 +32,12 @@ async def broadcast_worker():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    print("[StorePulse AI] Initializing database schema...")
+    try:
+        init_database()
+    except Exception as e:
+        print(f"[StorePulse AI] Warning: Database initialization warning: {e}")
+
     print("[StorePulse AI] Starting analytics pipeline...")
     pipeline_runner.start()
     task = asyncio.create_task(broadcast_worker())
@@ -63,6 +70,7 @@ app.add_middleware(
 app.include_router(zones.router)
 app.include_router(layouts.router)
 app.include_router(analytics_router.router)
+app.include_router(alerts_router.router)
 
 
 # ── WebSocket ─────────────────────────────────────────────────────────
@@ -122,6 +130,82 @@ async def health():
             "error_message": getattr(pipeline_runner, "error_message", None),
         }
     }
+
+
+@app.get("/api/health/storage")
+def storage_health():
+    """Storage and database health telemetry without exposing secrets."""
+    from backend.alerts.storage import storage_manager
+    from backend.database.connection import SessionLocal
+    from backend.database.models import AlertEvent, EvidenceSnapshot
+    db = SessionLocal()
+    try:
+        alert_count = db.query(AlertEvent).count()
+        snapshot_count = db.query(EvidenceSnapshot).count()
+        db_status = "connected"
+    except Exception as e:
+        db_status = f"error: {str(e)}"
+        alert_count = 0
+        snapshot_count = 0
+    finally:
+        db.close()
+
+    storage_stats = storage_manager.get_storage_stats()
+    return {
+        "status": "healthy" if db_status == "connected" else "degraded",
+        "database": {
+            "status": db_status,
+            "engine": "sqlite_wal",
+            "total_alerts": alert_count,
+            "total_snapshots": snapshot_count
+        },
+        "storage": storage_stats
+    }
+
+
+from pydantic import BaseModel
+
+class SourceSwitchRequest(BaseModel):
+    source: str
+
+
+@app.get("/api/pipeline/source")
+def get_pipeline_source():
+    """Get active pipeline input source and execution mode."""
+    return {
+        "source": str(pipeline_runner.source),
+        "source_type": getattr(pipeline_runner, "source_type", "unknown"),
+        "is_demo": getattr(pipeline_runner, "is_demo", False),
+        "connection_status": getattr(pipeline_runner, "connection_status", "unknown"),
+        "running": pipeline_runner.is_running,
+    }
+
+
+@app.post("/api/pipeline/source")
+def switch_pipeline_source(req: SourceSwitchRequest):
+    """Switch pipeline between demo simulation, local video file, or camera."""
+    src = req.source.strip()
+    if src.lower() in ("demo", "simulation"):
+        pipeline_runner.switch_source("demo")
+    elif src.lower() in ("video", "file", "default"):
+        default_vid = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'detection', 'vid', 'retail-cctv-footage.mp4'))
+        pipeline_runner.switch_source(default_vid)
+    else:
+        pipeline_runner.switch_source(src)
+    return {
+        "status": "switched",
+        "source": str(pipeline_runner.source),
+        "source_type": pipeline_runner.source_type,
+        "is_demo": pipeline_runner.is_demo,
+    }
+
+
+@app.post("/api/pipeline/reset")
+def reset_pipeline():
+    """Reset zone analytics and tracking memory."""
+    from backend.zone_analytics import zone_analytics_engine
+    zone_analytics_engine.reset()
+    return {"status": "reset", "message": "Pipeline and zone analytics state reset successfully"}
 
 
 
