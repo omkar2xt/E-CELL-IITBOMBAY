@@ -104,22 +104,25 @@ class FlowFrictionCalculator:
             occ_ratio = occupancy / capacity
             occ_score = min(100, (occ_ratio / cfg.OCCUPANCY_SATURATE_AT) * 100)
 
-            # ── Component 2: Dwell time ───────────────────────────────
-            if sample_count >= 3 and avg_dwell > 0:
-                dwell_ratio = avg_dwell / baseline
-                dwell_score = min(100, ((dwell_ratio - 1.0) / (cfg.DWELL_SATURATE_AT - 1.0)) * 100)
-                dwell_score = max(0, dwell_score)
-                dwell_confidence = "HIGH" if sample_count >= 10 else "MEDIUM"
+            # ── Component 2: Dwell time (completed or active) ─────────
+            effective_dwell = avg_dwell if sample_count >= 3 else stats.get("active_avg_dwell_seconds", 0)
+            effective_samples = sample_count if sample_count >= 3 else stats.get("current_occupancy", 0)
+
+            if effective_samples > 0 and effective_dwell > 0:
+                dwell_ratio = effective_dwell / baseline
+                dwell_score = min(100.0, ((dwell_ratio - 1.0) / (cfg.DWELL_SATURATE_AT - 1.0)) * 100.0)
+                dwell_score = max(0.0, dwell_score)
+                dwell_confidence = "HIGH" if effective_samples >= 10 else ("MEDIUM" if effective_samples >= 3 else "LOW")
             else:
-                dwell_score = 0
+                dwell_score = 0.0
                 dwell_confidence = "LOW"
 
             # ── Component 3: Queue (only for checkout zones) ──────────
             if zone_type == "checkout":
                 queue_ratio = queue_count / max(queue_threshold, 1)
-                queue_score = min(100, queue_ratio * 100)
+                queue_score = min(100.0, queue_ratio * 100.0)
             else:
-                queue_score = 0
+                queue_score = 0.0
 
             # ── Weighted average ───────────────────────────────────────
             total_weight = cfg.WEIGHT_OCCUPANCY + cfg.WEIGHT_DWELL + cfg.WEIGHT_QUEUE
@@ -129,7 +132,7 @@ class FlowFrictionCalculator:
                 queue_score * cfg.WEIGHT_QUEUE
             ) / total_weight
 
-            score = round(min(100, max(0, score)), 1)
+            score = round(min(100.0, max(0.0, score)), 1)
 
             # ── Alert level ────────────────────────────────────────────
             if score >= cfg.ALERT_THRESHOLD_CRITICAL:
@@ -141,29 +144,39 @@ class FlowFrictionCalculator:
             else:
                 alert_level = "NONE"
 
-            # ── Explanation ────────────────────────────────────────────
+            # ── Explanation with Bottleneck Context ────────────────────
             factors = []
             if occ_score >= 60:
                 factors.append(f"high occupancy ({occupancy}/{capacity})")
-            if dwell_score >= 60 and dwell_confidence != "LOW":
-                factors.append(f"prolonged dwell ({avg_dwell:.0f}s vs {baseline}s baseline)")
+            if dwell_score >= 60:
+                dwell_type_label = "completed" if sample_count >= 3 else "active"
+                factors.append(f"prolonged {dwell_type_label} dwell ({effective_dwell:.0f}s vs {baseline}s baseline)")
             if queue_score >= 60:
                 factors.append(f"queue buildup ({queue_count} in queue)")
+
+            b_info = stats.get("bottleneck", {})
+            if b_info.get("is_bottleneck"):
+                factors.append(f"bottleneck active ({b_info.get('severity', 'HIGH')})")
+
             explanation = (
                 "Main factors: " + ", ".join(factors)
                 if factors else "Flow is smooth"
             )
 
             # ── Recommendation ─────────────────────────────────────────
-            recommendation = _get_recommendation(alert_level, zone_type, factors)
+            if b_info.get("is_bottleneck") and b_info.get("recommendation"):
+                recommendation = b_info["recommendation"]
+            else:
+                recommendation = _get_recommendation(alert_level, zone_type, factors)
 
             # ── Data confidence ────────────────────────────────────────
-            if sample_count >= 10:
+            if effective_samples >= 10:
                 data_confidence = "HIGH"
-            elif sample_count >= 3:
+            elif effective_samples >= 3:
                 data_confidence = "MEDIUM"
             else:
                 data_confidence = "LOW"
+
 
             # ── Store history ──────────────────────────────────────────
             with self._lock:

@@ -40,7 +40,7 @@ class LayoutConfig:
     """A complete store layout: shelves + zones."""
     id: str
     name: str
-    description: str
+    description: str = ""
     elements: List[ShelfElement] = field(default_factory=list)
     zones: List[Dict] = field(default_factory=list)
     created_at: float = field(default_factory=time.time)
@@ -54,18 +54,20 @@ class LayoutSimulator:
     """
     Heuristic layout simulation model.
 
-    Given a proposed layout, estimates changes to:
+    Given a proposed layout and baseline layout (plus optional live analytics & transitions),
+    estimates changes to:
       - Customer walking distance
-      - Route conflicts
-      - Zone accessibility score
+      - Route conflicts & overlapping obstacles
+      - Zone accessibility and aisle clearance
+      - Zone-by-zone predicted congestion risk & bottleneck probabilities
       - Space utilization
-      - Flow friction estimate
+      - Layout flow friction index
 
     All outputs are explicitly labeled as heuristic estimates.
     """
 
-    # Demand weights by zone type — higher = more frequently visited
-    # These are configurable assumptions, not empirically validated
+    # Default demand weights by zone type — higher = more frequently visited
+    # Used when empirical transition data is insufficient (< 5 transitions)
     ZONE_DEMAND_WEIGHTS = {
         "entrance":    0.5,
         "checkout":    1.0,
@@ -76,60 +78,159 @@ class LayoutSimulator:
         "restricted":  0.0,
     }
 
+    def validate_layout(self, layout: LayoutConfig) -> Dict[str, Any]:
+        """
+        Validate layout geometry to prevent invalid placement, out-of-bounds items,
+        or accidental overlaps before simulation or saving.
+        """
+        errors: List[str] = []
+        warnings: List[str] = []
+        overlap_pairs: List[Dict[str, Any]] = []
+
+        elements = layout.elements or []
+        has_entrance = any(e.element_type == "entrance" for e in elements)
+        has_checkout = any(e.element_type == "checkout" for e in elements)
+
+        if not has_entrance:
+            warnings.append("No entrance element defined; defaulting to bottom-left entrance assumption (0.1, 0.9).")
+        if not has_checkout:
+            warnings.append("No checkout element defined; checkout accessibility cannot be measured accurately.")
+
+        # Check bounds and dimensions
+        for e in elements:
+            x, y, w, h = self._norm_element(e)
+            if w <= 0.0 or h <= 0.0:
+                errors.append(f"Element '{e.id}' ({e.label or e.element_type}) has non-positive dimensions.")
+            if x < -0.05 or y < -0.05 or (x + w) > 1.05 or (y + h) > 1.05:
+                warnings.append(f"Element '{e.id}' ({e.label or e.element_type}) extends beyond the store boundary.")
+
+        # Check overlaps among physical fixtures (shelves, displays, obstacles, checkouts)
+        physical_types = {"shelf", "display", "obstacle", "checkout"}
+        for i, e1 in enumerate(elements):
+            if e1.element_type not in physical_types:
+                continue
+            for e2 in elements[i + 1:]:
+                if e2.element_type not in physical_types:
+                    continue
+                if self._rects_overlap(e1, e2):
+                    overlap_pairs.append({
+                        "element_1": e1.id,
+                        "label_1": e1.label or e1.element_type,
+                        "element_2": e2.id,
+                        "label_2": e2.label or e2.element_type,
+                    })
+
+        if overlap_pairs:
+            warnings.append(f"Detected {len(overlap_pairs)} overlapping fixture pairs causing aisle obstruction.")
+
+        return {
+            "is_valid": len(errors) == 0,
+            "valid": len(errors) == 0,
+            "errors": errors,
+            "warnings": warnings,
+            "overlap_pairs": overlap_pairs,
+            "overlap_count": len(overlap_pairs),
+        }
+
     def simulate(
         self,
         baseline: LayoutConfig,
         proposed: LayoutConfig,
         baseline_analytics: Optional[Dict] = None,
+        transition_data: Optional[Dict] = None,
     ) -> Dict[str, Any]:
         """
         Run simulation comparing baseline vs. proposed layout.
 
         baseline_analytics: real measured data from zone_analytics_engine (if available).
-        Returns a comparison report.
+        transition_data: zone-to-zone transitions and empirical probabilities.
+        Returns a comprehensive comparison report.
         """
+        # Determine empirical demand weights if transition data is sufficient
+        demand_weights = dict(self.ZONE_DEMAND_WEIGHTS)
+        used_empirical_transitions = False
+        assumptions = [
+            "Customer traffic is approximated from zone geometry and accessibility",
+            "Walking distance is approximated as Manhattan distance between centroids",
+            "Obstacle placement reduces available aisle width and increases collision risk",
+            "Queue build-up is modeled as an accessibility penalty around registers",
+        ]
 
-        baseline_metrics = self._compute_layout_metrics(baseline)
-        proposed_metrics = self._compute_layout_metrics(proposed)
+        if transition_data and transition_data.get("data_sufficient") and transition_data.get("transitions"):
+            used_empirical_transitions = True
+            # Weight zones by total observed transition arrivals/departures
+            for t in transition_data["transitions"]:
+                to_z = t.get("to_zone")
+                if to_z:
+                    demand_weights[to_z] = demand_weights.get(to_z, 0.5) + t.get("probability", 0.0) * 0.5
+            assumptions.append("Incorporated empirical customer transition probabilities as baseline movement demand.")
+        else:
+            assumptions.append("Transition data insufficient (< 5 transitions); falling back to default category demand weights.")
 
-        comparison = self._build_comparison(
+        baseline_metrics = self._compute_layout_metrics(baseline, demand_weights, baseline_analytics)
+        proposed_metrics = self._compute_layout_metrics(proposed, demand_weights, baseline_analytics)
+
+        comparison, zone_comparisons = self._build_comparison(
             baseline_metrics,
             proposed_metrics,
-            baseline_analytics
+            baseline_analytics,
+            baseline,
+            proposed
         )
 
         return {
-            "model": "StorePulse AI Heuristic Layout Simulator v1",
+            "model": "StorePulse AI Heuristic Layout Simulator v2",
             "disclaimer": (
                 "All proposed values are heuristic estimates based on geometric "
-                "layout analysis. They do NOT predict real customer behavior. "
-                "Field validation is required before operational decisions."
+                "layout analysis and observed flow patterns. They do NOT predict "
+                "real customer behavior. Field validation is required before operational decisions."
             ),
-            "assumptions": [
-                "Customer traffic is assumed proportional to zone demand weights",
-                "Walking distance is approximated as Manhattan distance between zones",
-                "Obstacle density reduces available path space linearly",
-                "No real customer preference data is incorporated",
-                "Queue build-up is not dynamically simulated",
-            ],
+            "assumptions": assumptions,
+            "used_empirical_transitions": used_empirical_transitions,
             "baseline": {
                 "layout_id": baseline.id,
                 "layout_name": baseline.name,
                 "metrics": baseline_metrics,
+                "validation": self.validate_layout(baseline),
             },
             "proposed": {
                 "layout_id": proposed.id,
                 "layout_name": proposed.name,
                 "metrics": proposed_metrics,
+                "validation": self.validate_layout(proposed),
             },
             "comparison": comparison,
+            "zone_comparisons": zone_comparisons,
             "generated_at": time.time(),
         }
 
-    def _compute_layout_metrics(self, layout: LayoutConfig) -> Dict[str, Any]:
-        """Compute geometric metrics for a single layout."""
-        elements = layout.elements
-        zones = layout.zones
+    def _compute_layout_metrics(
+        self,
+        layout: LayoutConfig,
+        demand_weights: Optional[Dict[str, float]] = None,
+        real_analytics: Optional[Dict] = None
+    ) -> Dict[str, Any]:
+        """Compute geometric and zone metrics for a single layout."""
+        weights = demand_weights or self.ZONE_DEMAND_WEIGHTS
+        elements = layout.elements or []
+        zones = layout.zones or []
+
+        if not zones:
+            try:
+                from backend.zone_analytics import zone_analytics_engine
+                configured_zones = zone_analytics_engine.get_zones()
+                zones = [
+                    {
+                        "id": z.id,
+                        "name": z.name,
+                        "type": z.type,
+                        "polygon": [{"x": p[0], "y": p[1]} for p in z.polygon],
+                        "capacity": z.capacity,
+                    }
+                    for z in configured_zones
+                ]
+            except Exception:
+                zones = []
 
         # Space utilization: fraction occupied by shelves/obstacles
         total_element_area = sum(
@@ -138,19 +239,57 @@ class LayoutSimulator:
             if e.element_type not in ("entrance", "exit")
         )
         space_utilization = round(min(1.0, total_element_area) * 100, 1)
-        free_space = round(100.0 - space_utilization, 1)
+        free_space = round(max(0.0, 100.0 - space_utilization), 1)
 
         # Walking distance estimate: entrance to each zone centroid
         entrance = self._find_entrance(elements)
         zone_distances = {}
+        zone_details = {}
+
         for zone in zones:
+            zid = zone.get("id", "?")
+            zname = zone.get("name", zid)
+            ztype = zone.get("type", "display")
             zx, zy = self._zone_centroid(zone.get("polygon", []))
             dist = self._manhattan_distance(entrance, (zx, zy))
-            demand = self.ZONE_DEMAND_WEIGHTS.get(zone.get("type", "display"), 0.5)
-            zone_distances[zone.get("id", "?")] = {
+            demand = weights.get(ztype, weights.get(zid, 0.5))
+
+            # Aisle clearance: distance from centroid to closest physical fixture
+            clearance = self._estimate_zone_clearance(elements, (zx, zy))
+
+            # Congestion risk heuristic based on clearance, distance, and density
+            if clearance < 0.10:
+                congestion_risk = "CRITICAL"
+                risk_pct = 85.0
+            elif clearance < 0.15:
+                congestion_risk = "HIGH"
+                risk_pct = 65.0
+            elif clearance < 0.22:
+                congestion_risk = "MEDIUM"
+                risk_pct = 40.0
+            else:
+                congestion_risk = "LOW"
+                risk_pct = 15.0
+
+            # If real analytics exist for this zone, adjust baseline risk
+            if real_analytics and zid in real_analytics:
+                z_real = real_analytics[zid]
+                if z_real.get("congestion_level") in ("HIGH", "CRITICAL"):
+                    risk_pct = min(100.0, risk_pct + 15.0)
+
+            zone_distances[zid] = {
                 "distance_units": round(dist, 3),
-                "demand_weight": demand,
-                "weighted_distance": round(dist * demand, 3)
+                "demand_weight": round(demand, 2),
+                "weighted_distance": round(dist * demand, 3),
+            }
+            zone_details[zid] = {
+                "zone_id": zid,
+                "zone_name": zname,
+                "zone_type": ztype,
+                "distance": round(dist, 3),
+                "aisle_clearance": round(clearance, 3),
+                "congestion_risk": congestion_risk,
+                "congestion_risk_pct": round(risk_pct, 1),
             }
 
         avg_weighted_dist = (
@@ -163,10 +302,14 @@ class LayoutSimulator:
         # Checkout accessibility
         checkout_dist = self._checkout_distance(elements, zones, entrance)
 
-        # Estimated layout flow friction (0-100 heuristic decision index)
+        # Overall estimated layout friction (0-100 heuristic decision index)
         occ_penalty = max(0.0, (space_utilization - 25.0) * 1.5)
         dist_penalty = min(50.0, checkout_dist * 50.0)
         est_friction = round(min(100.0, max(0.0, conflict_score * 0.4 + occ_penalty * 0.35 + dist_penalty * 0.25)), 1)
+
+        # Bottleneck risk index (composite across zone risks and conflicts)
+        avg_risk = sum(z["congestion_risk_pct"] for z in zone_details.values()) / max(len(zone_details), 1) if zone_details else 20.0
+        bottleneck_index = round(min(100.0, avg_risk * 0.6 + conflict_score * 0.4), 1)
 
         return {
             "space_utilization_pct": space_utilization,
@@ -177,30 +320,49 @@ class LayoutSimulator:
             "checkout_distance": round(checkout_dist, 3),
             "route_conflict_score": round(conflict_score, 1),
             "estimated_layout_friction": est_friction,
+            "bottleneck_risk_index": bottleneck_index,
             "zone_distances": zone_distances,
+            "zone_details": zone_details,
         }
+
+    def _estimate_zone_clearance(self, elements: List[ShelfElement], centroid: Tuple[float, float]) -> float:
+        """Estimate minimum distance from a zone centroid to any physical obstacle."""
+        physical_elements = [e for e in elements if e.element_type not in ("entrance", "exit")]
+        if not physical_elements:
+            return 0.5
+        min_dist = 1.0
+        zx, zy = centroid
+        for e in physical_elements:
+            ex, ey, ew, eh = self._norm_element(e)
+            ecx, ecy = ex + ew / 2.0, ey + eh / 2.0
+            dist = math.hypot(zx - ecx, zy - ecy)
+            if dist < min_dist:
+                min_dist = dist
+        return min_dist
 
     def _build_comparison(
         self,
         baseline: Dict,
         proposed: Dict,
-        real_analytics: Optional[Dict]
-    ) -> List[Dict]:
-        """Build a row-by-row comparison table."""
+        real_analytics: Optional[Dict],
+        baseline_layout: LayoutConfig,
+        proposed_layout: LayoutConfig,
+    ) -> Tuple[List[Dict], List[Dict]]:
+        """Build a row-by-row comparison table with mathematically safe zero-baseline handling."""
         rows = []
 
         def row(metric, b_val, p_val, unit="", lower_is_better=True):
-            if isinstance(b_val, float) and isinstance(p_val, float) and b_val != 0:
+            if isinstance(b_val, (int, float)) and isinstance(p_val, (int, float)):
                 abs_diff = round(p_val - b_val, 3)
-                pct_diff = round((abs_diff / b_val) * 100, 1)
-            else:
-                abs_diff = p_val - b_val if isinstance(b_val, (int, float)) else "N/A"
-                pct_diff = "N/A"
-
-            if isinstance(abs_diff, float):
+                if b_val != 0:
+                    pct_diff = f"{round((abs_diff / float(b_val)) * 100, 1)}%"
+                else:
+                    pct_diff = "N/A (baseline is 0)" if abs_diff != 0 else "0.0%"
                 better = (abs_diff < 0) if lower_is_better else (abs_diff > 0)
                 direction = "BETTER" if better else ("SAME" if abs_diff == 0 else "WORSE")
             else:
+                abs_diff = "N/A"
+                pct_diff = "N/A"
                 direction = "N/A"
 
             rows.append({
@@ -208,10 +370,10 @@ class LayoutSimulator:
                 "baseline": f"{b_val}{unit}",
                 "proposed": f"{p_val}{unit}",
                 "absolute_diff": f"{abs_diff}{unit}" if abs_diff != "N/A" else "N/A",
-                "pct_diff": f"{pct_diff}%" if pct_diff != "N/A" else "N/A",
+                "pct_diff": pct_diff,
                 "direction": direction,
                 "source": "heuristic_estimate",
-                "confidence": "LOW",
+                "confidence": "MEDIUM",
             })
 
         row("Space Utilization", baseline["space_utilization_pct"], proposed["space_utilization_pct"], "%", lower_is_better=False)
@@ -220,6 +382,7 @@ class LayoutSimulator:
         row("Checkout Accessibility Distance", baseline["checkout_distance"], proposed["checkout_distance"], " units", lower_is_better=True)
         row("Route Conflict Score", baseline["route_conflict_score"], proposed["route_conflict_score"], "", lower_is_better=True)
         row("Estimated Layout Flow Friction", baseline.get("estimated_layout_friction", 0.0), proposed.get("estimated_layout_friction", 0.0), "", lower_is_better=True)
+        row("Predicted Bottleneck Risk Index", baseline.get("bottleneck_risk_index", 0.0), proposed.get("bottleneck_risk_index", 0.0), "", lower_is_better=True)
         row("Element Count", baseline["element_count"], proposed["element_count"], " items", lower_is_better=False)
 
         # Inject real analytics if available
@@ -228,15 +391,56 @@ class LayoutSimulator:
                 rows.append({
                     "metric": f"[MEASURED] {zstats.get('zone_name', zone_id)} Avg Dwell",
                     "baseline": f"{zstats.get('avg_dwell_seconds', 0):.1f}s",
-                    "proposed": "Insufficient data",
+                    "proposed": "Requires physical trial",
                     "absolute_diff": "N/A",
                     "pct_diff": "N/A",
                     "direction": "N/A",
                     "source": "real_measurement",
-                    "confidence": zstats.get("sample_count", 0) >= 10 and "HIGH" or "MEDIUM",
+                    "confidence": "HIGH" if zstats.get("sample_count", 0) >= 10 else "MEDIUM",
                 })
 
-        return rows
+        # Zone-by-zone comparison subtable
+        zone_comparisons = []
+        b_zones = baseline.get("zone_details", {})
+        p_zones = proposed.get("zone_details", {})
+        all_zids = set(b_zones.keys()).union(p_zones.keys())
+
+        for zid in all_zids:
+            bz = b_zones.get(zid, {})
+            pz = p_zones.get(zid, {})
+            zname = pz.get("zone_name") or bz.get("zone_name") or zid
+            b_risk = bz.get("congestion_risk", "LOW")
+            p_risk = pz.get("congestion_risk", "LOW")
+            b_clear = bz.get("aisle_clearance", 0.5)
+            p_clear = pz.get("aisle_clearance", 0.5)
+            clear_diff = round(p_clear - b_clear, 3)
+
+            zone_comparisons.append({
+                "zone_id": zid,
+                "zone_name": zname,
+                "baseline_clearance": b_clear,
+                "proposed_clearance": p_clear,
+                "baseline_clearance_pct": round(b_clear * 100, 1),
+                "proposed_clearance_pct": round(p_clear * 100, 1),
+                "clearance_change": clear_diff,
+                "baseline_risk": b_risk,
+                "proposed_risk": p_risk,
+                "risk_direction": "BETTER" if p_clear > b_clear else ("WORSE" if p_clear < b_clear else "SAME"),
+                "risk_change": "BETTER" if p_clear > b_clear else ("WORSE" if p_clear < b_clear else "SAME"),
+                "dwell_impact": (
+                    "Increased browsing area (+0% bottleneck dwell)" if p_clear > b_clear
+                    else ("Constricted aisle may increase congestion dwell (+10-15%)" if p_clear < b_clear
+                    else "Neutral dwell impact")
+                ),
+                "estimated_dwell_impact": (
+                    "Increased aisle clearance; fluid customer movement" if p_clear > b_clear
+                    else ("Constricted aisle clearance may increase localized dwell & bottlenecks" if p_clear < b_clear
+                    else "Neutral dwell impact: clearance preserved")
+                ),
+                "confidence": "MEDIUM",
+            })
+
+        return rows, zone_comparisons
 
     # ── Geometry helpers ───────────────────────────────────────────────
 
@@ -259,8 +463,17 @@ class LayoutSimulator:
     def _zone_centroid(self, polygon: List) -> Tuple[float, float]:
         if not polygon:
             return (0.5, 0.5)
-        xs = [p[0] for p in polygon]
-        ys = [p[1] for p in polygon]
+        xs = []
+        ys = []
+        for p in polygon:
+            if isinstance(p, dict):
+                xs.append(float(p.get("x", 0.0)))
+                ys.append(float(p.get("y", 0.0)))
+            elif isinstance(p, (list, tuple)) and len(p) >= 2:
+                xs.append(float(p[0]))
+                ys.append(float(p[1]))
+        if not xs or not ys:
+            return (0.5, 0.5)
         return (sum(xs) / len(xs), sum(ys) / len(ys))
 
     def _manhattan_distance(self, a: Tuple, b: Tuple) -> float:

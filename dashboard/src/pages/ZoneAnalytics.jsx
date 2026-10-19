@@ -54,16 +54,34 @@ export default function ZoneAnalytics({ wsData }) {
     median: z.median_dwell_seconds,
   }));
 
+  const activeBottlenecks = zones.filter(z => z.bottleneck?.is_bottleneck || z.bottleneck?.severity === 'CRITICAL' || z.bottleneck?.severity === 'HIGH');
+
   return (
     <div className="fade-in">
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-        <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-          {lastFetch ? `Updated: ${lastFetch}` : 'Fetching...'}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+            {lastFetch ? `Updated: ${lastFetch}` : 'Fetching...'}
+          </div>
+          {wsData?.is_demo && <span className="demo-badge">SIMULATION MODE</span>}
         </div>
         <button className="sim-btn" onClick={fetchStats}>
           <RefreshCw size={13} /> Refresh
         </button>
       </div>
+
+      {activeBottlenecks.length > 0 && (
+        <div className="alert-banner" style={{ marginBottom: 20 }}>
+          <div>
+            <strong>⚠ ACTIVE BOTTLENECK DETECTED ({activeBottlenecks.length} {activeBottlenecks.length === 1 ? 'zone' : 'zones'}):</strong>
+            {activeBottlenecks.map(b => (
+              <div key={b.zone_id} style={{ marginTop: 4, fontSize: 12 }}>
+                • <strong>{b.zone_name}</strong> [{b.bottleneck.severity}]: {b.bottleneck.evidence?.join('; ') || 'Sustained congestion'} — <em>{b.bottleneck.recommendation}</em>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div className="empty-state"><div className="loading-spinner" /></div>
@@ -76,58 +94,82 @@ export default function ZoneAnalytics({ wsData }) {
       ) : (
         <>
           <div className="zone-grid" style={{ marginBottom: 24 }}>
-            {zones.map(z => (
-              <div key={z.zone_id} className={`zone-card ${z.congestion_status === 'CRITICAL' ? 'congested' : z.congestion_status === 'HIGH' ? 'warning' : ''}`}>
-                <div className="zone-header">
-                  <span className="zone-name">{z.zone_name}</span>
-                  <span className={`congestion-badge ${z.congestion_status}`}>{z.congestion_status}</span>
-                </div>
+            {zones.map(z => {
+              const b = z.bottleneck || {};
+              const isBottleneck = b.is_bottleneck || b.severity === 'CRITICAL';
+              return (
+                <div key={z.zone_id} className={`zone-card ${isBottleneck ? 'congested' : z.congestion_status === 'HIGH' ? 'warning' : ''}`}>
+                  <div className="zone-header">
+                    <span className="zone-name">{z.zone_name}</span>
+                    <span className={`congestion-badge ${isBottleneck ? 'CRITICAL' : z.congestion_status}`}>
+                      {isBottleneck ? 'BOTTLENECK' : z.congestion_status}
+                    </span>
+                  </div>
 
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>
-                  {z.zone_type.toUpperCase()}
-                </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>
+                    <span>{z.zone_type.toUpperCase()}</span>
+                    <span>{z.unique_visitors || z.total_entries} unique visitors</span>
+                  </div>
 
-                <div className="zone-occupancy-bar">
-                  <div
-                    className={`zone-occupancy-fill ${z.congestion_pct >= 75 ? 'critical' : z.congestion_pct >= 50 ? 'high' : ''}`}
-                    style={{ width: `${Math.min(100, z.congestion_pct)}%` }}
-                  />
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 10 }}>
-                  {z.current_occupancy} / {z.capacity} people ({z.congestion_pct}% capacity)
-                </div>
+                  <div className="zone-occupancy-bar">
+                    <div
+                      className={`zone-occupancy-fill ${z.congestion_pct >= 75 ? 'critical' : z.congestion_pct >= 50 ? 'high' : ''}`}
+                      style={{ width: `${Math.min(100, z.congestion_pct)}%` }}
+                    />
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 10 }}>
+                    {z.current_occupancy} / {z.capacity} people ({z.congestion_pct}% capacity)
+                  </div>
 
-                <div className="zone-stats">
-                  <div className="zone-stat">
-                    <span className="zone-stat-label">Avg Dwell</span>
-                    <span className="zone-stat-value">{formatDwell(z.avg_dwell_seconds)}</span>
+                  <div className="zone-stats">
+                    <div className="zone-stat">
+                      <span className="zone-stat-label">Active Dwell</span>
+                      <span className="zone-stat-value">{formatDwell(z.active_avg_dwell_seconds || 0)}</span>
+                    </div>
+                    <div className="zone-stat">
+                      <span className="zone-stat-label">Completed Avg</span>
+                      <span className="zone-stat-value">{formatDwell(z.avg_dwell_seconds || 0)}</span>
+                    </div>
+                    <div className="zone-stat">
+                      <span className="zone-stat-label">Median Dwell</span>
+                      <span className="zone-stat-value">{formatDwell(z.median_dwell_seconds || 0)}</span>
+                    </div>
+                    <div className="zone-stat">
+                      <span className="zone-stat-label">Total Visits</span>
+                      <span className="zone-stat-value">{z.total_entries}</span>
+                    </div>
                   </div>
-                  <div className="zone-stat">
-                    <span className="zone-stat-label">Median</span>
-                    <span className="zone-stat-value">{formatDwell(z.median_dwell_seconds)}</span>
-                  </div>
-                  <div className="zone-stat">
-                    <span className="zone-stat-label">Max Dwell</span>
-                    <span className="zone-stat-value">{formatDwell(z.max_dwell_seconds)}</span>
-                  </div>
-                  <div className="zone-stat">
-                    <span className="zone-stat-label">Total Entries</span>
-                    <span className="zone-stat-value">{z.total_entries}</span>
-                  </div>
-                </div>
 
-                {z.dwell_alert && (
-                  <div style={{
-                    marginTop: 8, padding: '4px 8px',
-                    background: 'rgba(239,68,68,0.12)', borderRadius: 6,
-                    fontSize: 11, color: '#fca5a5', fontWeight: 600
-                  }}>
-                    ⚠ Dwell time exceeds alert threshold
-                  </div>
-                )}
-              </div>
-            ))}
+                  {b.is_bottleneck && b.evidence && b.evidence.length > 0 && (
+                    <div style={{
+                      marginTop: 10, padding: '6px 8px',
+                      background: 'rgba(239,68,68,0.12)', borderRadius: 6,
+                      fontSize: 11, color: '#fca5a5'
+                    }}>
+                      <div style={{ fontWeight: 700 }}>⚠ Bottleneck Evidence:</div>
+                      <div>{b.evidence.join(' · ')}</div>
+                      {b.recommendation && (
+                        <div style={{ marginTop: 4, color: '#fed7aa', fontStyle: 'italic' }}>
+                          Action: {b.recommendation}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {!b.is_bottleneck && z.dwell_alert && (
+                    <div style={{
+                      marginTop: 8, padding: '4px 8px',
+                      background: 'rgba(245,158,11,0.12)', borderRadius: 6,
+                      fontSize: 11, color: '#fcd34d', fontWeight: 600
+                    }}>
+                      ⚠ Dwell time exceeds {z.dwell_alert_seconds || 120}s threshold
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
+
 
           {/* Dwell time comparison chart */}
           <div className="card">

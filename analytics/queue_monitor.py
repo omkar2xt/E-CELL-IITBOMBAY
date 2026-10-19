@@ -16,11 +16,15 @@
 
 import cv2
 import numpy as np
-from typing import List, Tuple
+from typing import List, Tuple, Optional, Set
 from dataclasses import dataclass, field
 from collections import deque
 import time
-import config
+
+try:
+    from analytics import config
+except ImportError:
+    import config
 
 
 @dataclass
@@ -33,24 +37,38 @@ class QueueState:
 
 class QueueMonitor:
 
-    def __init__(self, frame_width: int, frame_height: int):
-        self.frame_width  = frame_width
-        self.frame_height = frame_height
+    def __init__(
+        self,
+        frame_width: int,
+        frame_height: int,
+        zone_ratio: Optional[Tuple[float, float, float, float]] = None,
+        alert_threshold: Optional[int] = None,
+    ):
+        self.frame_width = max(1, frame_width)
+        self.frame_height = max(1, frame_height)
 
-        # Convert ratio zone to pixels
-        self.zone_px = self._ratio_to_pixel(config.QUEUE_ZONE)
+        self.zone_ratio = (
+            zone_ratio
+            if zone_ratio is not None
+            else getattr(config, 'QUEUE_ZONE', (0.13, 0.15, 0.37, 0.50))
+        )
+        self.zone_px = self._ratio_to_pixel(self.zone_ratio)
 
-        self.alert_threshold = config.QUEUE_ALERT_THRESHOLD
+        self.alert_threshold = (
+            alert_threshold
+            if alert_threshold is not None
+            else getattr(config, 'QUEUE_ALERT_THRESHOLD', 3)
+        )
 
         # Current state
         self.current_count = 0
         self.is_alert = False
 
         # Count history for charts (rolling window)
-        self.history: deque = deque(maxlen=60)  # last 60 data points
+        self.history: deque = deque(maxlen=60)
 
         # Track IDs currently in the zone
-        self.ids_in_zone: set = set()
+        self.ids_in_zone: Set[int] = set()
 
         print(f"[Queue] Zone px: {self.zone_px}, alert threshold: {self.alert_threshold}")
 
@@ -77,14 +95,34 @@ class QueueMonitor:
         x1, y1, x2, y2 = self.zone_px
         self.ids_in_zone = set()
 
+        if not tracked_persons:
+            self.current_count = 0
+            self.is_alert = False
+            return 0
+
         for person in tracked_persons:
-            bcx, bcy = person.bottom_center
+            if person is None:
+                continue
+
+            # Support both bottom_center property or tuple/bbox
+            bc = getattr(person, 'bottom_center', None)
+            if bc is None and hasattr(person, 'center'):
+                bc = person.center
+            elif bc is None and hasattr(person, 'bbox') and len(person.bbox) >= 4:
+                bc = (int((person.bbox[0] + person.bbox[2]) / 2), int(person.bbox[3]))
+
+            if bc is None:
+                continue
+
+            bcx, bcy = bc
             # Check if bottom_center is inside the zone
             if x1 <= bcx <= x2 and y1 <= bcy <= y2:
-                self.ids_in_zone.add(person.track_id)
+                tid = getattr(person, 'track_id', id(person))
+                self.ids_in_zone.add(tid)
 
         self.current_count = len(self.ids_in_zone)
         self.is_alert = self.current_count >= self.alert_threshold
+
 
         # Save to history
         self.history.append(QueueState(

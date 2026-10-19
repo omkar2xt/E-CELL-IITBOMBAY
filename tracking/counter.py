@@ -13,9 +13,18 @@
 # If using the center, a person bending over could trigger a false crossing.
 # ============================================================
 
-from typing import Dict, Tuple, List
-from tracker import TrackedPerson
-import config as config
+from typing import Dict, Tuple, List, Set, Optional
+
+try:
+    from tracking.tracker import TrackedPerson
+    from tracking import config
+except ImportError:
+    try:
+        from tracker import TrackedPerson
+        import config
+    except ImportError:
+        TrackedPerson = None
+        config = None
 
 
 class LineCounter:
@@ -27,11 +36,25 @@ class LineCounter:
     - When the side changes -> crossing occurs
     """
 
-    def __init__(self, line_start: Tuple[int, int], line_end: Tuple[int, int]):
+    def __init__(
+        self,
+        line_start: Tuple[int, int],
+        line_end: Tuple[int, int],
+        orientation: Optional[str] = None,
+        tolerance: Optional[int] = None,
+    ):
         self.line_start = line_start
         self.line_end = line_end
-        self.orientation = config.LINE_ORIENTATION
-        self.tolerance = config.LINE_CROSSING_TOLERANCE
+        self.orientation = (
+            orientation
+            if orientation is not None
+            else getattr(config, 'LINE_ORIENTATION', 'horizontal')
+        )
+        self.tolerance = (
+            tolerance
+            if tolerance is not None
+            else getattr(config, 'LINE_CROSSING_TOLERANCE', 5)
+        )
 
         # Counter
         self.count_in = 0
@@ -45,6 +68,7 @@ class LineCounter:
         # List of crossing events in this frame (for visual flash)
         # Format: (track_id, direction)  direction = "IN" or "OUT"
         self.current_crossings: List[Tuple[int, str]] = []
+
 
     def update(self, tracked_persons: List[TrackedPerson]):
         """
@@ -153,3 +177,15 @@ class LineCounter:
         self.count_out = 0
         self._track_states.clear()
         self.current_crossings.clear()
+
+    def cleanup_old_tracks(self, active_ids: Set[int]):
+        """
+        Prune states for tracks that have terminated.
+        Retains active track states while preventing memory leak.
+        """
+        # If track states grow large, keep only active and recent ones
+        if len(self._track_states) > 1000:
+            stale_ids = set(self._track_states.keys()) - active_ids
+            # Remove up to 500 oldest stale IDs
+            for tid in list(stale_ids)[:500]:
+                self._track_states.pop(tid, None)

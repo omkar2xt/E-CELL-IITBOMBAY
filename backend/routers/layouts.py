@@ -169,10 +169,28 @@ def delete_layout(layout_id: str):
     return {"status": "deleted", "layout_id": layout_id}
 
 
+@router.post("/validate")
+def validate_layout_endpoint(req: LayoutCreateRequest):
+    """
+    Validate layout geometry for out-of-bounds fixtures and aisle-blocking overlaps.
+    """
+    shelves = [_model_to_shelf(e) for e in req.elements]
+    zones = [z.model_dump() for z in req.zones]
+    layout = LayoutConfig(
+        id=req.id or "temp_validate",
+        name=req.name,
+        description=req.description,
+        elements=shelves,
+        zones=zones,
+    )
+    return layout_simulator.validate_layout(layout)
+
+
 @router.post("/simulate")
 def run_simulation(req: SimulationRequest):
     """
     Run a heuristic simulation comparing baseline vs. proposed layout.
+    Incorporates real analytics and empirical transition probabilities where available.
     Returns a comparison report with clearly labeled estimates.
     """
     baseline = layout_store.get_layout(req.baseline_id)
@@ -183,7 +201,7 @@ def run_simulation(req: SimulationRequest):
     if not proposed:
         raise HTTPException(status_code=404, detail=f"Proposed layout '{req.proposed_id}' not found")
 
-    # Include real analytics if available
+    # Include real analytics and transitions if available
     try:
         real_analytics = zone_analytics_engine.get_zone_stats()
         if not real_analytics:
@@ -191,5 +209,12 @@ def run_simulation(req: SimulationRequest):
     except Exception:
         real_analytics = None
 
-    result = layout_simulator.simulate(baseline, proposed, real_analytics)
+    try:
+        transition_data = zone_analytics_engine.get_transitions()
+        if not transition_data or not transition_data.get("transitions"):
+            transition_data = None
+    except Exception:
+        transition_data = None
+
+    result = layout_simulator.simulate(baseline, proposed, real_analytics, transition_data)
     return result

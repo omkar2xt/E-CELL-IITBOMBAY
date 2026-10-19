@@ -99,3 +99,74 @@ def test_layouts_api_and_simulation():
 def test_layout_not_found():
     res = client.get("/api/layouts/nonexistent_id_12345")
     assert res.status_code == 404
+
+
+def test_zones_bottlenecks_and_dashboard_integration():
+    """Requirement 10: API endpoints for bottlenecks, zone stats, and dashboard integration."""
+    # 1. Bottlenecks endpoint
+    b_res = client.get("/api/zones/bottlenecks")
+    assert b_res.status_code == 200
+    b_data = b_res.json()
+    assert "total_bottlenecks" in b_data
+    assert "status" in b_data
+    assert b_data["status"] in ("SMOOTH", "WARNING", "CONGESTED")
+    assert "bottlenecks" in b_data
+    assert isinstance(b_data["bottlenecks"], list)
+
+    # 2. Zone stats endpoint with dwell & explainability schema
+    stats_res = client.get("/api/zones/stats")
+    assert stats_res.status_code == 200
+    stats_data = stats_res.json()
+    assert "zone_stats" in stats_data or "zones" in stats_data
+    zones = stats_data.get("zone_stats") or stats_data.get("zones")
+    assert isinstance(zones, dict)
+    for zid, zstat in zones.items():
+        assert "current_occupancy" in zstat
+        assert "capacity" in zstat
+        assert "avg_dwell_seconds" in zstat
+        assert "active_avg_dwell_seconds" in zstat
+        assert "bottleneck" in zstat
+        b = zstat["bottleneck"]
+        assert "is_bottleneck" in b
+        assert "severity" in b
+        assert "evidence" in b
+        assert "recommendation" in b
+        assert "thresholds" in b
+
+    # 3. Transitions endpoint
+    trans_res = client.get("/api/zones/transitions")
+    assert trans_res.status_code == 200
+    assert "transitions" in trans_res.json()
+
+
+def test_layouts_validate_endpoint():
+    """Verify geometry validation endpoint on valid and overlapping layouts."""
+    # Valid payload
+    valid_payload = {
+        "name": "Validation Test Layout",
+        "elements": [
+            {"id": "e", "element_type": "entrance", "x": 0.0, "y": 0.8, "width": 0.1, "height": 0.1, "rotation": 0.0, "label": "In"},
+            {"id": "c", "element_type": "checkout", "x": 0.8, "y": 0.1, "width": 0.1, "height": 0.2, "rotation": 0.0, "label": "Cashier"},
+            {"id": "s1", "element_type": "shelf", "x": 0.2, "y": 0.2, "width": 0.1, "height": 0.3, "rotation": 0.0, "label": "Shelf 1"},
+        ],
+        "zones": []
+    }
+    res_valid = client.post("/api/layouts/validate", json=valid_payload)
+    assert res_valid.status_code == 200
+    assert res_valid.json()["is_valid"] is True
+    assert res_valid.json()["overlap_count"] == 0
+
+    # Overlapping payload
+    overlap_payload = {
+        "name": "Collision Test",
+        "elements": [
+            {"id": "s1", "element_type": "shelf", "x": 0.3, "y": 0.3, "width": 0.2, "height": 0.2, "rotation": 0.0, "label": "S1"},
+            {"id": "s2", "element_type": "shelf", "x": 0.35, "y": 0.35, "width": 0.2, "height": 0.2, "rotation": 0.0, "label": "S2"},
+        ],
+        "zones": []
+    }
+    res_overlap = client.post("/api/layouts/validate", json=overlap_payload)
+    assert res_overlap.status_code == 200
+    assert res_overlap.json()["overlap_count"] >= 1
+
+

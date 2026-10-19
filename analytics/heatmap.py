@@ -15,45 +15,58 @@
 
 import cv2
 import numpy as np
-from typing import List, Tuple
-import config
+from typing import List, Tuple, Optional
+
+try:
+    from analytics import config
+except ImportError:
+    import config
 
 
 class HeatmapGenerator:
 
-    def __init__(self, frame_width: int, frame_height: int):
-        self.width  = frame_width
-        self.height = frame_height
+    def __init__(
+        self,
+        frame_width: int,
+        frame_height: int,
+        radius: Optional[int] = None,
+        intensity: Optional[float] = None,
+    ):
+        self.width = max(1, frame_width)
+        self.height = max(1, frame_height)
+        self.radius = (
+            radius
+            if radius is not None
+            else getattr(config, 'HEATMAP_RADIUS', 25)
+        )
+        self.intensity = (
+            intensity
+            if intensity is not None
+            else getattr(config, 'HEATMAP_INTENSITY', 3)
+        )
 
         # Main accumulator - float32 so it can accumulate large values
         # without overflowing (uint8 max = 255)
-        self._accumulator = np.zeros((frame_height, frame_width), dtype=np.float32)
+        self._accumulator = np.zeros((self.height, self.width), dtype=np.float32)
 
-        # Pre-compute the Gaussian kernel once so it doesn't need recomputing
-        # every frame (optimization)
-        self._kernel = self._make_gaussian_kernel(config.HEATMAP_RADIUS)
-
+        # Pre-compute the Gaussian kernel once
+        self._kernel = self._make_gaussian_kernel(self.radius)
         self._frame_count = 0
 
-        print(f"[Heatmap] Init {frame_width}x{frame_height}, "
-              f"radius={config.HEATMAP_RADIUS}, intensity={config.HEATMAP_INTENSITY}")
+        print(f"[Heatmap] Init {self.width}x{self.height}, "
+              f"radius={self.radius}, intensity={self.intensity}")
 
     def _make_gaussian_kernel(self, radius: int) -> np.ndarray:
         """
         Create a 2D Gaussian kernel.
-
-        This kernel is like a "stamp" pasted onto the accumulator
-        for every person. Its shape is like a hill: peak at the center,
-        sloping down to the edges.
-
-        radius: determines how large the affected area is.
         """
         size = radius * 2 + 1
         x = np.linspace(-radius, radius, size)
-        gauss_1d = np.exp(-0.5 * (x / (radius / 2)) ** 2)
+        gauss_1d = np.exp(-0.5 * (x / max(1e-5, (radius / 2))) ** 2)
         kernel = np.outer(gauss_1d, gauss_1d)
-        # Normalize so total energy = 1
-        kernel = kernel / kernel.sum()
+        sum_k = kernel.sum()
+        if sum_k > 0:
+            kernel = kernel / sum_k
         return kernel.astype(np.float32)
 
     def update(self, positions: List[Tuple[int, int]]):
@@ -63,20 +76,30 @@ class HeatmapGenerator:
         Args:
             positions: list of (cx, cy) points for each tracked person
         """
+        if not positions:
+            return
+
         self._frame_count += 1
-        r = config.HEATMAP_RADIUS
+        r = self.radius
         kh, kw = self._kernel.shape
-        intensity = config.HEATMAP_INTENSITY
+        intensity = self.intensity
 
         for cx, cy in positions:
-            # Calculate the area on the accumulator where the kernel will be placed
-            x1 = cx - r
-            y1 = cy - r
-            x2 = cx + r + 1
-            y2 = cy + r + 1
+            if cx is None or cy is None:
+                continue
 
-            # Calculate the overlap between the kernel and the frame boundaries
-            # (if the person is at the edge of the frame, the kernel might go out of bounds)
+            try:
+                icx = int(cx)
+                icy = int(cy)
+            except (ValueError, TypeError):
+                continue
+
+            # Calculate the area on the accumulator where the kernel will be placed
+            x1 = icx - r
+            y1 = icy - r
+            x2 = icx + r + 1
+            y2 = icy + r + 1
+
             kx1 = max(0, -x1)
             ky1 = max(0, -y1)
             kx2 = kw - max(0, x2 - self.width)
@@ -87,11 +110,18 @@ class HeatmapGenerator:
             ax2 = min(self.width,  x2)
             ay2 = min(self.height, y2)
 
-            # Validate that the overlap area is not empty
-            if ax2 > ax1 and ay2 > ay1 and kx2 > kx1 and ky2 > ky1:
-                self._accumulator[ay1:ay2, ax1:ax2] += (
-                    self._kernel[ky1:ky2, kx1:kx2] * intensity
+            kw_slice = kx2 - kx1
+            kh_slice = ky2 - ky1
+            aw_slice = ax2 - ax1
+            ah_slice = ay2 - ay1
+            use_w = min(kw_slice, aw_slice)
+            use_h = min(kh_slice, ah_slice)
+
+            if use_w > 0 and use_h > 0:
+                self._accumulator[ay1:ay1 + use_h, ax1:ax1 + use_w] += (
+                    self._kernel[ky1:ky1 + use_h, kx1:kx1 + use_w] * intensity
                 )
+
 
     def get_overlay(self) -> np.ndarray:
         """

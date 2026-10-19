@@ -100,10 +100,17 @@ def get_zone_stats():
     return {"zone_stats": zone_analytics_engine.get_zone_stats()}
 
 
+@router.get("/bottlenecks")
+def get_bottlenecks():
+    """Get explainable bottleneck analysis and alerts across all zones."""
+    return zone_analytics_engine.get_bottleneck_summary()
+
+
 @router.get("/transitions")
 def get_zone_transitions():
     """Get zone-to-zone transition counts."""
     return zone_analytics_engine.get_transitions()
+
 
 
 @router.post("/reset")
