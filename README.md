@@ -8,6 +8,18 @@
 
 ---
 
+## Research Papers & Technical Documentation
+
+StorePulse AI is supported by technical research and system design documentation covering its computer vision pipeline, software architecture, analytics methodology, and interactive layout simulation.
+
+The following resources provide further details about the system's design, implementation, and technical approach.
+
+- Research Papers, System Architecture & Design Diagrams:-
+
+   https://drive.google.com/drive/folders/1yB0nkzscHzPic0tapfwTFQq7wAa5lN8h?usp=sharing
+
+These resources provide additional technical context for understanding the system architecture, key components, data flow, implementation decisions, and potential future improvements of StorePulse AI.
+
 ## 1. Overview & Problem Statement
 
 Physical retail operators frequently make layout modifications—moving shelves, shifting promotional displays, and relocating checkout lanes—without quantitative data on how these changes affect customer movement, dwell times, and bottleneck formation.
