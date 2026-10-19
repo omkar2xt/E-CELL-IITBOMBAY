@@ -84,7 +84,8 @@ def get_alert_snapshot_image(
 ):
     """
     Stream the evidence snapshot JPEG image.
-    Supports HTTP caching headers and path-traversal safety checks.
+    Fetches securely from private Vercel Blob or local disk fallback.
+    Supports HTTP caching headers, path-traversal prevention, and authorization.
     """
     alert = alert_service.get_alert_by_id(alert_id)
     if not alert:
@@ -98,14 +99,14 @@ def get_alert_snapshot_image(
     primary_snap = snapshots[0]
     storage_key = primary_snap["storage_key"]
 
-    file_path = storage_manager.get_snapshot_path(storage_key, thumbnail=thumb)
-    if not file_path or not os.path.exists(file_path):
+    img_bytes, mime_type = storage_manager.get_snapshot_bytes(storage_key, thumbnail=thumb)
+    if not img_bytes:
         raise HTTPException(status_code=404, detail="Snapshot image file missing from storage")
 
-    # High-performance static streaming with immutable cache header
-    return FileResponse(
-        file_path,
-        media_type="image/jpeg",
+    # Secure binary streaming with immutable cache header
+    return Response(
+        content=img_bytes,
+        media_type=mime_type or "image/jpeg",
         headers={
             "Cache-Control": "public, max-age=86400, immutable",
             "X-Alert-ID": alert_id,

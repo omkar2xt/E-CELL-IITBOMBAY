@@ -204,4 +204,18 @@ class PersonTracker:
 
         # Keep seen_ids bounded to last 5000 IDs
         if len(self.seen_ids) > 5000:
-            self.seen_ids = set(list(self.seen_ids)[-2500:])
+            self.seen_ids = set(list(self.seen_ids)[-2500:])
+
+    def reset(self):
+        """Reset all active tracks, trajectories, and frame counts for a new session or loop."""
+        self.trajectories.clear()
+        self.last_seen_frame.clear()
+        self.seen_ids.clear()
+        self.frame_count = 0
+        try:
+            if hasattr(self.model, 'predictor') and self.model.predictor is not None:
+                if hasattr(self.model.predictor, 'trackers'):
+                    self.model.predictor.trackers = []
+        except Exception:
+            pass
+

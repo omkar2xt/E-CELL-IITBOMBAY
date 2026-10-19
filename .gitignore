@@ -229,3 +229,9 @@ backend/data/snapshots/*.jpg
 !backend/data/snapshots/.gitkeep
 backend/data/*.db*
 
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+
+

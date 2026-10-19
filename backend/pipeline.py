@@ -43,9 +43,23 @@ class AnalyticsPipeline:
         self.error_message: Optional[str] = None
         self.is_demo = False
         self.cap: Optional[cv2.VideoCapture] = None
+        self.tracker = None
+        self.counter = None
 
         # Load default zones on startup
         zone_analytics_engine.set_zones(ZoneAnalyticsEngine.default_zones())
+
+    def reset_session(self):
+        """Reset tracking state, line counters, and zone metrics for a clean session."""
+        with self.lock:
+            if self.counter is not None:
+                self.counter.reset_counts()
+            if self.tracker is not None:
+                self.tracker.reset()
+        from backend.zone_analytics import zone_analytics_engine
+        zone_analytics_engine.reset()
+        print("[Pipeline] Session reset: counter, tracker, and zone analytics memory cleared.")
+
 
     def _determine_source_type(self, source) -> str:
         if str(source).lower() in ("demo", "simulation"):
@@ -210,6 +224,9 @@ class AnalyticsPipeline:
 
         tracker = PersonTracker()
         counter = LineCounter(line_start, line_end)
+        with self.lock:
+            self.tracker = tracker
+            self.counter = counter
         heatmap = HeatmapGenerator(w, h)
         queue = QueueMonitor(w, h)
 
@@ -224,12 +241,13 @@ class AnalyticsPipeline:
         frame_id = 0
         prev_time = time.time()
         fps_smoothed = 0.0
+        initial_occupancy_set = False
 
         while self.is_running:
             ret, frame = cap.read()
             if not ret:
                 if self.source_type == "file":
-                    # Loop video file cleanly
+                    # Video reached end of stream — loop cleanly and reset session to avoid accumulating duplicate events
                     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                     ret_retry, frame = cap.read()
                     if not ret_retry:
@@ -237,6 +255,13 @@ class AnalyticsPipeline:
                         cap.release()
                         cap = cv2.VideoCapture(self.source)
                         continue
+
+                    # Reset session so short video clips do not infinitely stack counts
+                    tracker.reset()
+                    counter.reset_counts()
+                    initial_occupancy_set = False
+                    frame_id = 0
+                    continue
                 else:
                     # Live camera or stream dropped
                     print(f"[Pipeline] Connection dropped on {self.source_type}. Initiating reconnection...")
@@ -262,7 +287,13 @@ class AnalyticsPipeline:
 
             # Core CV pipeline
             tracked = tracker.update(frame)
-            counter.update(tracked)
+
+            # Establish initial occupancy baseline on session startup from people already inside
+            if not initial_occupancy_set and len(tracked) > 0:
+                counter.set_initial_occupancy(len(tracked))
+                initial_occupancy_set = True
+
+            counter.update(tracked, timestamp=now)
 
             positions = [p.bottom_center for p in tracked]
             heatmap.update(positions)
@@ -371,20 +402,8 @@ class AnalyticsPipeline:
                 self.track_id = track_id
                 self.bottom_center = bottom_center
 
-        frame_id = 0
-        base_in = 14
-        base_out = 9
-
         # Canvas dimensions for simulation: 800 x 600
         sw, sh = 800, 600
-        agents = [
-            {"id": 1, "x": 80.0, "y": 480.0, "target": (450.0, 450.0), "speed": 3.0, "dwell_frames": 0},
-            {"id": 2, "x": 450.0, "y": 450.0, "target": (580.0, 160.0), "speed": 2.5, "dwell_frames": 0},
-            {"id": 3, "x": 580.0, "y": 160.0, "target": (380.0, 180.0), "speed": 2.0, "dwell_frames": 0},
-            {"id": 4, "x": 380.0, "y": 180.0, "target": (200.0, 200.0), "speed": 2.5, "dwell_frames": 0},
-            {"id": 5, "x": 200.0, "y": 200.0, "target": (80.0, 480.0), "speed": 2.0, "dwell_frames": 0},
-            {"id": 6, "x": 220.0, "y": 220.0, "target": (450.0, 450.0), "speed": 2.2, "dwell_frames": 0},
-        ]
 
         # Waypoints inside the 5 canonical zones
         waypoints = [
@@ -395,9 +414,29 @@ class AnalyticsPipeline:
             (200.0, 200.0),  # Checkout: x in [104, 296], y in [90, 300]
         ]
 
-        heatmap = HeatmapGenerator(sw, sh)
-        print("[Pipeline] Running in DEMO mode — simulated retail customer flow active")
+        # 18 simulated agents representing realistic store occupancy (18 people visible)
+        num_sim_agents = 18
+        agents = []
+        for aid in range(1, num_sim_agents + 1):
+            wp = waypoints[aid % len(waypoints)]
+            nxt = waypoints[(aid + 1) % len(waypoints)]
+            agents.append({
+                "id": aid,
+                "x": float(wp[0] + (aid * 7) % 50 - 25),
+                "y": float(wp[1] + (aid * 11) % 50 - 25),
+                "target": nxt,
+                "speed": 1.8 + (aid % 4) * 0.3,
+                "dwell_frames": (aid * 15) % 60,
+            })
 
+        base_in = num_sim_agents
+        base_out = 0
+        next_agent_id = num_sim_agents + 1
+
+        heatmap = HeatmapGenerator(sw, sh)
+        print("[Pipeline] Running in DEMO mode — simulated retail customer flow active (18 agents)")
+
+        frame_id = 0
         while self.is_running:
             frame_id += 1
             t = frame_id / 30.0
@@ -443,10 +482,21 @@ class AnalyticsPipeline:
             # Accumulate heatmap positions
             heatmap.update([p.bottom_center for p in sim_people])
 
-            if frame_id % 75 == 0:
-                base_in += random.choice([0, 1])
-            if frame_id % 95 == 0:
-                base_out += random.choice([0, 1])
+            # Periodic natural customer turnover: 1 checkout exit & 1 entrance arrival
+            # Preserves total store occupancy = num_sim_agents (18)
+            if frame_id % 250 == 0:
+                base_out += 1
+                base_in += 1
+                exiting_idx = (frame_id // 250) % len(agents)
+                agents[exiting_idx] = {
+                    "id": next_agent_id,
+                    "x": 80.0 + random.uniform(-15, 15),
+                    "y": 480.0 + random.uniform(-15, 15),
+                    "target": random.choice(waypoints[1:]),
+                    "speed": random.uniform(1.8, 2.8),
+                    "dwell_frames": 0,
+                }
+                next_agent_id += 1
 
             # Queue count tied to checkout visitors with sinusoidal variation
             queue_count = max(checkout_count, int(1 + math.sin(t / 12) * 2.2 + random.uniform(0, 1.2)))

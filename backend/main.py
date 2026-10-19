@@ -19,6 +19,10 @@ from backend.ws_manager import manager
 from backend.pipeline import pipeline_runner
 from backend.routers import zones, layouts, analytics as analytics_router, alerts as alerts_router
 from backend.database.init_db import init_database
+from backend.database.connection import IS_POSTGRES
+
+# Runtime environment detection
+IS_SERVERLESS = os.getenv("VERCEL") == "1" or os.getenv("SERVERLESS", "0") == "1" or os.getenv("API_ONLY", "0") == "1"
 
 
 async def broadcast_worker():
@@ -38,13 +42,21 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[StorePulse AI] Warning: Database initialization warning: {e}")
 
-    print("[StorePulse AI] Starting analytics pipeline...")
-    pipeline_runner.start()
-    task = asyncio.create_task(broadcast_worker())
+    task = None
+    if not IS_SERVERLESS:
+        print("[StorePulse AI] Persistent worker runtime active — starting CV analytics pipeline...")
+        pipeline_runner.start()
+        task = asyncio.create_task(broadcast_worker())
+    else:
+        print("[StorePulse AI] Serverless runtime active (Vercel) — continuous video worker loop disabled.")
+
     yield
-    task.cancel()
-    print("[StorePulse AI] Stopping analytics pipeline...")
-    pipeline_runner.stop()
+
+    if task:
+        task.cancel()
+    if not IS_SERVERLESS:
+        print("[StorePulse AI] Stopping analytics pipeline...")
+        pipeline_runner.stop()
 
 
 app = FastAPI(
@@ -107,7 +119,21 @@ def frame_generator():
 
 @app.get("/snapshot")
 async def get_snapshot():
-    """MJPEG stream of the processed frame with heatmap overlays."""
+    """MJPEG stream of the processed frame with heatmap overlays or single snapshot on serverless."""
+    if IS_SERVERLESS:
+        frame = pipeline_runner.get_latest_snapshot()
+        if frame is not None:
+            ret, buffer = cv2.imencode('.jpg', frame)
+            if ret:
+                from fastapi.responses import Response
+                return Response(content=buffer.tobytes(), media_type="image/jpeg")
+        from fastapi.responses import Response
+        return Response(
+            content=b'{"status": "serverless_active", "message": "Live video processing worker runs on persistent runtime."}',
+            status_code=200,
+            media_type="application/json"
+        )
+
     return StreamingResponse(
         frame_generator(),
         media_type="multipart/x-mixed-replace; boundary=frame"
@@ -116,15 +142,16 @@ async def get_snapshot():
 
 @app.get("/health")
 async def health():
-    """Health check endpoint with pipeline telemetry."""
+    """Health check endpoint with pipeline telemetry and runtime mode."""
     return {
         "status": "ok",
         "product": "StorePulse AI",
         "version": "1.0.0",
         "developer": "Omkar Gurav",
+        "runtime": "serverless" if IS_SERVERLESS else "persistent_worker",
         "pipeline": {
-            "running": pipeline_runner.is_running,
-            "connection_status": getattr(pipeline_runner, "connection_status", "unknown"),
+            "running": pipeline_runner.is_running if not IS_SERVERLESS else False,
+            "connection_status": getattr(pipeline_runner, "connection_status", "unknown") if not IS_SERVERLESS else "serverless",
             "source_type": getattr(pipeline_runner, "source_type", "unknown"),
             "is_demo": getattr(pipeline_runner, "is_demo", False),
             "error_message": getattr(pipeline_runner, "error_message", None),
@@ -153,9 +180,10 @@ def storage_health():
     storage_stats = storage_manager.get_storage_stats()
     return {
         "status": "healthy" if db_status == "connected" else "degraded",
+        "runtime": "serverless" if IS_SERVERLESS else "persistent_worker",
         "database": {
             "status": db_status,
-            "engine": "sqlite_wal",
+            "engine": "neon_postgresql" if IS_POSTGRES else "sqlite_wal",
             "total_alerts": alert_count,
             "total_snapshots": snapshot_count
         },
@@ -204,8 +232,11 @@ def switch_pipeline_source(req: SourceSwitchRequest):
 def reset_pipeline():
     """Reset zone analytics and tracking memory."""
     from backend.zone_analytics import zone_analytics_engine
+    from backend.pipeline import pipeline_runner
+    pipeline_runner.reset_session()
     zone_analytics_engine.reset()
-    return {"status": "reset", "message": "Pipeline and zone analytics state reset successfully"}
+    return {"status": "reset", "message": "Pipeline, counter, and zone analytics state reset successfully"}
+
 
 
 
