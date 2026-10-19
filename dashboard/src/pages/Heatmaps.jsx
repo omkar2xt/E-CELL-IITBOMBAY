@@ -2,9 +2,10 @@
 // Developer: Omkar Gurav
 import React, { useEffect, useRef, useState } from 'react';
 import { Flame } from 'lucide-react';
+import { API_BASE } from '../config';
 
-const API = 'http://localhost:8000';
-const STREAM_URL = 'http://localhost:8000/snapshot';
+const API = API_BASE;
+const STREAM_URL = `${API_BASE}/snapshot`;
 
 function renderHeatmapToCanvas(canvas, data) {
   if (!canvas || !data) return;

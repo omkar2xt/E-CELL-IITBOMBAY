@@ -3,8 +3,7 @@
 // Developer: Omkar Gurav
 import React, { useEffect, useState } from 'react';
 import { Navigation, ArrowRight, RefreshCw, BarChart2, AlertCircle, CheckCircle } from 'lucide-react';
-
-const API = 'http://localhost:8000';
+import { API_BASE as API } from '../config';
 
 const DEFAULT_ZONES = ['entrance', 'grocery', 'electronics', 'promo', 'checkout'];
 

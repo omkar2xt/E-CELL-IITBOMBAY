@@ -3,8 +3,7 @@
 // Developer: Omkar Gurav
 import React, { useState } from 'react';
 import { Shield, Settings, AlertTriangle } from 'lucide-react';
-
-const API = 'http://localhost:8000';
+import { API_BASE as API } from '../config';
 
 export default function SettingsPage() {
   const [demographicsEnabled, setDemographicsEnabled] = useState(false);

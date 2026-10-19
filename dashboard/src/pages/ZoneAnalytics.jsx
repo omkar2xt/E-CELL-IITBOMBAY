@@ -5,8 +5,7 @@ import { MapPin, RefreshCw } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
-
-const API = 'http://localhost:8000';
+import { API_BASE as API } from '../config';
 
 function formatDwell(s) {
   if (s < 60) return `${s.toFixed(0)}s`;
