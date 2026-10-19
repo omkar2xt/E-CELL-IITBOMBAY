@@ -8,6 +8,18 @@
 
 ---
 
+## Research Papers & Technical Documentation
+
+StorePulse AI is supported by technical research and system design documentation covering its computer vision pipeline, software architecture, analytics methodology, and interactive layout simulation.
+
+The following resources provide further details about the system's design, implementation, and technical approach.
+
+- Research Papers, System Architecture & Design Diagrams:-
+
+   https://drive.google.com/drive/folders/1yB0nkzscHzPic0tapfwTFQq7wAa5lN8h?usp=sharing
+
+These resources provide additional technical context for understanding the system architecture, key components, data flow, implementation decisions, and potential future improvements of StorePulse AI.
+
 ## 1. Overview & Problem Statement
 
 Physical retail operators frequently make layout modifications—moving shelves, shifting promotional displays, and relocating checkout lanes—without quantitative data on how these changes affect customer movement, dwell times, and bottleneck formation.
@@ -290,10 +302,15 @@ StorePulse AI was designed specifically to comply with the strictest retail comp
 
 ---
 
-## 14. Developer & Ownership
+## 14. Deployment & Scalability
+StorePulse AI is a software-only solution, temporarily deployed using Docker and Kubernetes to support consistent application packaging, deployment, and scalability. It combines a React-based dashboard, a FastAPI backend, and a computer vision pipeline to deliver retail analytics without requiring specialized additional hardware. The deployment architecture is designed to support future improvements, cloud integration, and expansion to multiple retail locations.
+
+---
+## 15. Developer & Ownership
 
 **Product:** StorePulse AI — Intelligent Retail Flow & What-If Layout Simulator  
 **Developer & Architect:** Omkar Gurav  
 **Challenge:** Everseen Computer Vision AI Hackathon  
 **Problem Statement 3:** Dwell-Time & Bottleneck Mapper  
 **License:** MIT  
+
