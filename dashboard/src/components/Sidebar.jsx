@@ -32,7 +32,7 @@ export default function Sidebar({ wsStatus, queueAlert }) {
           <Activity size={20} color="white" />
         </div>
         <h1>StorePulse AI</h1>
-        <div className="logo-sub">Retail Flow & Layout Simulator</div>
+        <div className="logo-sub">Retail Intelligence</div>
       </div>
 
       <nav className="sidebar-nav">

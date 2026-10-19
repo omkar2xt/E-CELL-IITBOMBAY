@@ -41,7 +41,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="StorePulse AI — Intelligent Retail Flow & What-If Layout Simulator API",
+    title="StorePulse AI — Retail Intelligence API",
     description=(
         "StorePulse AI — Intelligent Retail Flow & What-If Layout Simulator. "
         "Developer: Omkar Gurav."
