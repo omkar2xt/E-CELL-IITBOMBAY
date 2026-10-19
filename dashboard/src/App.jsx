@@ -16,9 +16,8 @@ import ScenarioComparison from './pages/ScenarioComparison';
 import SettingsPage from './pages/Settings';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useQueueHistory } from './hooks/useQueueHistory';
+import { WS_URL } from './config';
 import './index.css';
-
-const WS_URL = 'ws://localhost:8000/ws';
 
 const PAGE_TITLES = {
   '/':           'Overview',

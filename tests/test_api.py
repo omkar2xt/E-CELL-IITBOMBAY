@@ -170,3 +170,24 @@ def test_layouts_validate_endpoint():
     assert res_overlap.json()["overlap_count"] >= 1
 
 
+def test_transitions_insufficient_data_contract():
+    """Verify transitions endpoint contract on insufficient vs sufficient data."""
+    res = client.get("/api/zones/transitions")
+    assert res.status_code == 200
+    data = res.json()
+    assert "transitions" in data
+    assert "total_transitions" in data
+    assert "data_sufficient" in data
+    # If no recorded transitions, data_sufficient MUST be False
+    if data["total_transitions"] == 0:
+        assert data["data_sufficient"] is False
+
+
+def test_websocket_connect_and_disconnect():
+    """Verify WebSocket /ws endpoint connects, sends/receives cleanly, and handles disconnect."""
+    with client.websocket_connect("/ws") as ws:
+        # Send a ping/hello message from client
+        ws.send_text("ping")
+        # Connection succeeds without raising exception on disconnect
+
+

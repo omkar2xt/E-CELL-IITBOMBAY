@@ -6,8 +6,7 @@ import { FrictionGauge } from '../components/FrictionGauge';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
-
-const API = 'http://localhost:8000';
+import { API_BASE as API } from '../config';
 
 export default function FlowFriction() {
   const [frictionData, setFrictionData] = useState(null);

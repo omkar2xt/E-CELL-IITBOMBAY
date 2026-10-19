@@ -8,8 +8,7 @@ import {
   Save, Trash2, RotateCcw, RotateCw, Copy, Info, Plus, Layout,
   Grid, Move, Maximize2, Undo, Play, AlertTriangle, CheckCircle2, ShieldAlert
 } from 'lucide-react';
-
-const API = 'http://localhost:8000';
+import { API_BASE as API } from '../config';
 
 const ELEMENT_TYPES = [
   { type: 'shelf',    label: 'Shelf',     color: '#6366f1', bg: 'rgba(99,102,241,0.15)',  icon: '🗄' },

@@ -3,8 +3,7 @@
 // Developer: Omkar Gurav
 import React, { useState, useEffect } from 'react';
 import { BarChart3, RefreshCw, Info, Play } from 'lucide-react';
-
-const API = 'http://localhost:8000';
+import { API_BASE as API } from '../config';
 
 function DirectionBadge({ dir }) {
   const cls = { BETTER: 'BETTER', WORSE: 'WORSE', SAME: 'SAME', 'N/A': 'NA' };
