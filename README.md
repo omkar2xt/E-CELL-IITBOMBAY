@@ -290,7 +290,11 @@ StorePulse AI was designed specifically to comply with the strictest retail comp
 
 ---
 
-## 14. Developer & Ownership
+## 14. Deployment & Scalability
+StorePulse AI is a software-only solution, temporarily deployed using Docker and Kubernetes to support consistent application packaging, deployment, and scalability. It combines a React-based dashboard, a FastAPI backend, and a computer vision pipeline to deliver retail analytics without requiring specialized additional hardware. The deployment architecture is designed to support future improvements, cloud integration, and expansion to multiple retail locations.
+
+---
+## 15. Developer & Ownership
 
 **Product:** StorePulse AI — Intelligent Retail Flow & What-If Layout Simulator  
 **Developer & Architect:** Omkar Gurav  
@@ -298,5 +302,3 @@ StorePulse AI was designed specifically to comply with the strictest retail comp
 **Problem Statement 3:** Dwell-Time & Bottleneck Mapper  
 **License:** MIT  
 
-## 15. Deployment & Scalability
-StorePulse AI is a software-only solution, temporarily deployed using Docker and Kubernetes to support consistent application packaging, deployment, and scalability. It combines a React-based dashboard, a FastAPI backend, and a computer vision pipeline to deliver retail analytics without requiring specialized additional hardware. The deployment architecture is designed to support future improvements, cloud integration, and expansion to multiple retail locations.
