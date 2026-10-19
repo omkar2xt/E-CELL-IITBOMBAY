@@ -6,8 +6,9 @@ import { StatCard } from '../components/StatCard';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
+import { API_BASE } from '../config';
 
-const STREAM_URL = 'http://localhost:8000/snapshot';
+const STREAM_URL = `${API_BASE}/snapshot`;
 
 function formatTime(ts) {
   return new Date(ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -68,24 +69,41 @@ export default function Overview({ data, queueHistory, wsStatus }) {
             </div>
           </div>
           <div className="live-feed">
-            {wsStatus === 'connected' && !isDemo ? (
+            {wsStatus === 'connected' ? (
               <>
-                <img src={STREAM_URL} alt="Live camera feed" loading="lazy"
-                  onError={e => { e.target.style.display = 'none'; }} />
+                <img
+                  src={STREAM_URL}
+                  alt={isDemo ? "Simulated Retail Floor" : "Live Camera Feed"}
+                  style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                  onError={e => {
+                    console.warn('[Feed] Video feed connection error');
+                    e.target.style.display = 'none';
+                    const fb = document.getElementById('feed-error-placeholder');
+                    if (fb) fb.style.display = 'flex';
+                  }}
+                />
+                <div id="feed-error-placeholder" className="feed-placeholder" style={{ display: 'none' }}>
+                  <Camera size={40} style={{ opacity: 0.2 }} />
+                  <div style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>
+                    Stream Unavailable
+                  </div>
+                  <div style={{ fontSize: 12, textAlign: 'center', maxWidth: 240, color: 'var(--text-muted)' }}>
+                    Check backend server connection at {STREAM_URL}
+                  </div>
+                </div>
                 <div className="live-feed-overlay">
-                  <span className="live-dot" /> LIVE
+                  <span className="live-dot" style={{ background: isDemo ? '#f59e0b' : '#10b981' }} />
+                  {isDemo ? 'DEMO SIMULATION' : 'LIVE CAMERA'}
                 </div>
               </>
             ) : (
               <div className="feed-placeholder">
                 <Camera size={40} style={{ opacity: 0.2 }} />
                 <div style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>
-                  {isDemo ? 'Demo Mode — No Video' : 'Connecting...'}
+                  {wsStatus === 'connecting' ? 'Connecting to Backend...' : 'Backend Disconnected'}
                 </div>
-                <div style={{ fontSize: 12, textAlign: 'center', maxWidth: 220 }}>
-                  {isDemo
-                    ? 'Set VIDEO_SOURCE in .env to connect a camera or video file'
-                    : 'Waiting for backend connection...'}
+                <div style={{ fontSize: 12, textAlign: 'center', maxWidth: 220, color: 'var(--text-muted)' }}>
+                  Waiting for stream at {STREAM_URL}
                 </div>
               </div>
             )}

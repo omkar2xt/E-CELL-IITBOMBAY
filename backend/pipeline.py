@@ -22,6 +22,7 @@ from analytics.main import build_line, get_dims
 import backend.settings as be_config
 from backend.ws_manager import manager
 from backend.zone_analytics import zone_analytics_engine, ZoneAnalyticsEngine
+from backend.alerts.evaluator import alert_evaluator
 import asyncio
 
 
@@ -47,6 +48,8 @@ class AnalyticsPipeline:
         zone_analytics_engine.set_zones(ZoneAnalyticsEngine.default_zones())
 
     def _determine_source_type(self, source) -> str:
+        if str(source).lower() in ("demo", "simulation"):
+            return "demo"
         if isinstance(source, int):
             return "webcam"
         src_str = str(source).strip()
@@ -78,7 +81,10 @@ class AnalyticsPipeline:
 
     def switch_source(self, new_source):
         """Switch video source dynamically with clean resource handoff."""
-        resolved = be_config._resolve_video_source(new_source)
+        if str(new_source).lower() in ("demo", "simulation"):
+            resolved = "demo"
+        else:
+            resolved = be_config._resolve_video_source(new_source)
         print(f"[Pipeline] Switching source from {self.source} -> {resolved}")
         was_running = self.is_running
         if was_running:
@@ -157,6 +163,14 @@ class AnalyticsPipeline:
         an_config.DEMO_ANALYSIS_INTERVAL = 30
 
         self.source_type = self._determine_source_type(self.source)
+
+        if self.source_type == "demo":
+            print("[Pipeline] Running in DEMO simulation mode (synthetically generated retail customer flow)")
+            self.connection_status = "demo"
+            self.is_demo = True
+            self.error_message = None
+            self._run_demo_loop()
+            return
 
         # Check file existence if it's a file
         if self.source_type == "file" and not os.path.exists(str(self.source)):
@@ -269,6 +283,17 @@ class AnalyticsPipeline:
             color = (0, 60, 255) if counter.has_crossing_this_frame() else (0, 200, 255)
             cv2.line(frame_display, counter.line_start, counter.line_end, color, 2, cv2.LINE_AA)
 
+            # Draw tracked person bounding boxes, labels, and tracking points
+            for person in tracked:
+                x1, y1, x2, y2 = [int(v) for v in person.bbox]
+                cv2.rectangle(frame_display, (x1, y1), (x2, y2), (0, 255, 128), 2)
+                label = f"ID:{person.track_id} ({person.confidence:.0%})"
+                (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)
+                cv2.rectangle(frame_display, (x1, max(0, y1 - th - 6)), (x1 + tw + 4, max(th + 6, y1)), (0, 0, 0), -1)
+                cv2.putText(frame_display, label, (x1 + 2, max(th + 2, y1 - 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 128), 1, cv2.LINE_AA)
+                bcx, bcy = person.bottom_center
+                cv2.circle(frame_display, (bcx, bcy), 4, (0, 200, 255), -1)
+
             # StorePulse AI branding overlay
             cv2.putText(
                 frame_display, "StorePulse AI",
@@ -312,6 +337,15 @@ class AnalyticsPipeline:
                         "bottlenecks": bottlenecks,
                     }
 
+                    try:
+                        alert_evaluator.evaluate_pipeline_state(
+                            self.latest_payload,
+                            frame=self.latest_frame,
+                            source_mode="live" if self.source_type != "demo" else "demo"
+                        )
+                    except Exception:
+                        pass
+
 
             # Cleanup old trajectories every 300 frames
             if frame_id % 300 == 0:
@@ -324,8 +358,6 @@ class AnalyticsPipeline:
 
         if cap is not None:
             cap.release()
-
-
     def _run_demo_loop(self):
         """
         Demo mode: emit synthetic metrics and update zone analytics when no video is available.
@@ -340,50 +372,67 @@ class AnalyticsPipeline:
                 self.bottom_center = bottom_center
 
         frame_id = 0
-        base_in = 12
-        base_out = 8
+        base_in = 14
+        base_out = 9
 
-        # Simulated store agents with wander targets
         # Canvas dimensions for simulation: 800 x 600
         sw, sh = 800, 600
         agents = [
-            {"id": 1, "x": 100.0, "y": 480.0, "target": (450.0, 450.0), "speed": 2.5},
-            {"id": 2, "x": 420.0, "y": 420.0, "target": (500.0, 480.0), "speed": 1.8},
-            {"id": 3, "x": 620.0, "y": 200.0, "target": (680.0, 150.0), "speed": 1.5},
-            {"id": 4, "x": 660.0, "y": 420.0, "target": (720.0, 440.0), "speed": 2.0},
-            {"id": 5, "x": 220.0, "y": 200.0, "target": (210.0, 220.0), "speed": 1.0},
-            {"id": 6, "x": 240.0, "y": 220.0, "target": (230.0, 190.0), "speed": 0.8},
+            {"id": 1, "x": 80.0, "y": 480.0, "target": (450.0, 450.0), "speed": 3.0, "dwell_frames": 0},
+            {"id": 2, "x": 450.0, "y": 450.0, "target": (580.0, 160.0), "speed": 2.5, "dwell_frames": 0},
+            {"id": 3, "x": 580.0, "y": 160.0, "target": (380.0, 180.0), "speed": 2.0, "dwell_frames": 0},
+            {"id": 4, "x": 380.0, "y": 180.0, "target": (200.0, 200.0), "speed": 2.5, "dwell_frames": 0},
+            {"id": 5, "x": 200.0, "y": 200.0, "target": (80.0, 480.0), "speed": 2.0, "dwell_frames": 0},
+            {"id": 6, "x": 220.0, "y": 220.0, "target": (450.0, 450.0), "speed": 2.2, "dwell_frames": 0},
         ]
 
-        # Waypoints for department wandering
+        # Waypoints inside the 5 canonical zones
         waypoints = [
-            (100.0, 480.0),  # Entrance
-            (450.0, 450.0),  # Grocery
-            (620.0, 200.0),  # Electronics
-            (660.0, 420.0),  # Promo
-            (220.0, 200.0),  # Checkout
+            (80.0, 480.0),   # Entrance: x in [0, 160], y in [360, 600]
+            (450.0, 450.0),  # Grocery: x in [304, 600], y in [300, 600]
+            (580.0, 160.0),  # Electronics: x in [440, 720], y in [60, 270]
+            (380.0, 180.0),  # Promo Display: x in [320, 440], y in [90, 270]
+            (200.0, 200.0),  # Checkout: x in [104, 296], y in [90, 300]
         ]
 
+        heatmap = HeatmapGenerator(sw, sh)
         print("[Pipeline] Running in DEMO mode — simulated retail customer flow active")
 
         while self.is_running:
             frame_id += 1
             t = frame_id / 30.0
 
-            # Update simulated agents positions
+            # Update simulated agents positions with zone lingering
             sim_people = []
+            checkout_count = 0
             for a in agents:
                 tx, ty = a["target"]
                 dx = tx - a["x"]
                 dy = ty - a["y"]
                 dist = math.hypot(dx, dy)
-                if dist < 15.0:
-                    # Pick new target waypoint
-                    a["target"] = random.choice(waypoints)
+
+                if a["dwell_frames"] > 0:
+                    # Lingering in current zone
+                    a["dwell_frames"] -= 1
+                    a["x"] += random.uniform(-0.4, 0.4)
+                    a["y"] += random.uniform(-0.4, 0.4)
+                elif dist < 20.0:
+                    # Agent reached zone: linger for 30-90 frames (1-3 seconds)
+                    a["dwell_frames"] = random.randint(30, 90)
+                    choices = [w for w in waypoints if w != a["target"]]
+                    a["target"] = random.choice(choices)
                 else:
                     step = a["speed"]
-                    a["x"] += (dx / dist) * step + random.uniform(-0.5, 0.5)
-                    a["y"] += (dy / dist) * step + random.uniform(-0.5, 0.5)
+                    a["x"] += (dx / dist) * step + random.uniform(-0.3, 0.3)
+                    a["y"] += (dy / dist) * step + random.uniform(-0.3, 0.3)
+
+                # Clamp within boundaries
+                a["x"] = max(20.0, min(float(sw) - 20.0, a["x"]))
+                a["y"] = max(20.0, min(float(sh) - 20.0, a["y"]))
+
+                # Check if in checkout
+                if 104.0 <= a["x"] <= 296.0 and 90.0 <= a["y"] <= 300.0:
+                    checkout_count += 1
 
                 sim_people.append(DemoTrackedPerson(a["id"], (int(a["x"]), int(a["y"]))))
 
@@ -391,56 +440,72 @@ class AnalyticsPipeline:
             # Feed to zone analytics engine with timestamp
             zone_analytics_engine.update(sim_people, frame_width=sw, frame_height=sh, timestamp=now)
 
-            if frame_id % 60 == 0:
+            # Accumulate heatmap positions
+            heatmap.update([p.bottom_center for p in sim_people])
+
+            if frame_id % 75 == 0:
                 base_in += random.choice([0, 1])
-            if frame_id % 90 == 0:
+            if frame_id % 95 == 0:
                 base_out += random.choice([0, 1])
 
-            queue_count = max(0, int(1 + math.sin(t / 15) * 2 + random.gauss(0, 0.5)))
+            # Queue count tied to checkout visitors with sinusoidal variation
+            queue_count = max(checkout_count, int(1 + math.sin(t / 12) * 2.2 + random.uniform(0, 1.2)))
 
-            # Generate lightweight visualization frame for /snapshot
+            # Generate visualization frame for /snapshot
             if frame_id % 2 == 0:
                 demo_canvas = np.zeros((360, 640, 3), dtype=np.uint8)
-                demo_canvas[:] = (22, 28, 36)  # dark background
+                demo_canvas[:] = (20, 26, 35)  # sleek dark theme
 
-                # Draw grid lines
+                # Subtle floor grid
                 for gx in range(0, 640, 40):
-                    cv2.line(demo_canvas, (gx, 0), (gx, 360), (30, 38, 48), 1)
+                    cv2.line(demo_canvas, (gx, 0), (gx, 360), (28, 36, 48), 1)
                 for gy in range(0, 360, 40):
-                    cv2.line(demo_canvas, (0, gy), (640, gy), (30, 38, 48), 1)
+                    cv2.line(demo_canvas, (0, gy), (640, gy), (28, 36, 48), 1)
 
-                # Draw zones
-                for z in zone_analytics_engine.get_zones():
+                # Draw zones with semi-transparent tint
+                zones_list = zone_analytics_engine.get_zones()
+                for z in zones_list:
                     pts = np.array([
                         [int(p[0] * 640), int(p[1] * 360)]
                         for p in z.polygon
-                    ], np.int32)
-                    pts = pts.reshape((-1, 1, 2))
-                    cv2.polylines(demo_canvas, [pts], True, z.color, 1, cv2.LINE_AA)
+                    ], np.int32).reshape((-1, 1, 2))
+                    cv2.polylines(demo_canvas, [pts], True, z.color, 2, cv2.LINE_AA)
                     if len(pts) > 0:
                         cx, cy = pts[0][0]
                         cv2.putText(
                             demo_canvas, z.name,
-                            (cx + 4, cy + 14), cv2.FONT_HERSHEY_SIMPLEX, 0.35,
-                            z.color, 1, cv2.LINE_AA
+                            (cx + 4, cy + 16), cv2.FONT_HERSHEY_SIMPLEX, 0.38,
+                            (255, 255, 255), 1, cv2.LINE_AA
                         )
 
-                # Draw people dots
+                # Draw customer dots with glow and track labels
                 for p in sim_people:
                     px = int((p.bottom_center[0] / sw) * 640)
                     py = int((p.bottom_center[1] / sh) * 360)
-                    cv2.circle(demo_canvas, (px, py), 5, (0, 220, 255), -1, cv2.LINE_AA)
-                    cv2.circle(demo_canvas, (px, py), 7, (0, 180, 220), 1, cv2.LINE_AA)
+                    cv2.circle(demo_canvas, (px, py), 6, (0, 220, 255), -1, cv2.LINE_AA)
+                    cv2.circle(demo_canvas, (px, py), 9, (0, 160, 200), 1, cv2.LINE_AA)
+                    cv2.putText(
+                        demo_canvas, f"#{p.track_id}",
+                        (px + 8, py + 4), cv2.FONT_HERSHEY_SIMPLEX, 0.35,
+                        (200, 240, 255), 1, cv2.LINE_AA
+                    )
 
-                # Branding header
+                # Status banner overlay
+                cv2.rectangle(demo_canvas, (0, 0), (640, 28), (14, 19, 27), -1)
                 cv2.putText(
-                    demo_canvas, "StorePulse AI [SIMULATION MODE]",
-                    (10, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.55,
-                    (255, 200, 0), 1, cv2.LINE_AA
+                    demo_canvas, "StorePulse AI  [DEMO SIMULATION -- COHERENT RETAIL FLOW]",
+                    (12, 19), cv2.FONT_HERSHEY_SIMPLEX, 0.48,
+                    (245, 180, 20), 1, cv2.LINE_AA
+                )
+                cv2.putText(
+                    demo_canvas, f"Queue: {queue_count} {'(ALERT)' if queue_count >= 3 else ''}",
+                    (520, 19), cv2.FONT_HERSHEY_SIMPLEX, 0.42,
+                    (239, 68, 68) if queue_count >= 3 else (16, 185, 129), 1, cv2.LINE_AA
                 )
 
                 with self.lock:
                     self.latest_frame = demo_canvas
+                    self.latest_heatmap_raw = heatmap._accumulator.copy()
 
             with self.lock:
                 if frame_id % be_config.BROADCAST_INTERVAL == 0:
@@ -469,6 +534,14 @@ class AnalyticsPipeline:
                         "bottlenecks": bottlenecks,
                     }
 
+                    try:
+                        alert_evaluator.evaluate_pipeline_state(
+                            self.latest_payload,
+                            frame=self.latest_frame,
+                            source_mode="demo"
+                        )
+                    except Exception:
+                        pass
 
             time.sleep(1.0 / 30.0)
 

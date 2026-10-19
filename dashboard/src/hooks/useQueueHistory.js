@@ -10,7 +10,12 @@ export function useQueueHistory(currentQueueCount, maxItems = 60) {
         const now = new Date();
         const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
         
-        const newItem = { time: timeStr, count: currentQueueCount };
+        const newItem = {
+          time: timeStr,
+          label: timeStr,
+          queue: currentQueueCount,
+          count: currentQueueCount,
+        };
         const next = [...prev, newItem];
         if (next.length > maxItems) {
           return next.slice(next.length - maxItems);

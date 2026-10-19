@@ -76,7 +76,21 @@ export default function Heatmaps({ wsStatus }) {
           <div className="live-feed">
             {wsStatus === 'connected' ? (
               <>
-                <img src={STREAM_URL} alt="Heatmap live" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                <img
+                  src={STREAM_URL}
+                  alt="Heatmap live"
+                  style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                  onError={e => {
+                    console.warn('[Feed] Heatmap stream disconnected');
+                    e.target.style.display = 'none';
+                    const fb = document.getElementById('heatmap-feed-placeholder');
+                    if (fb) fb.style.display = 'flex';
+                  }}
+                />
+                <div id="heatmap-feed-placeholder" className="feed-placeholder" style={{ display: 'none' }}>
+                  <Flame size={40} style={{ opacity: 0.2 }} />
+                  <div>Stream Connecting...</div>
+                </div>
                 <div className="live-feed-overlay"><span className="live-dot" />LIVE</div>
               </>
             ) : (
