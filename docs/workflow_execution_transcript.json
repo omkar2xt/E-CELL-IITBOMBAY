@@ -1,0 +1,259 @@
+{
+  "step1": {
+    "layout_id": "baseline",
+    "layout_name": "Current Layout (Baseline)",
+    "element_count": 10,
+    "elements_sample": [
+      "Shelf A",
+      "Shelf B",
+      "Shelf C",
+      "Shelf D"
+    ]
+  },
+  "step2": {
+    "zone_count": 5,
+    "total_transitions": 0,
+    "data_sufficient": false,
+    "confidence": "LOW"
+  },
+  "step3": {
+    "status": "saved",
+    "baseline_id": "baseline",
+    "name": "Everseen Supermarket Baseline"
+  },
+  "step4": {
+    "moved_element": "Shelf B",
+    "new_coords": {
+      "x": 0.5,
+      "y": 0.2
+    },
+    "geometry_valid": true,
+    "overlap_count": 1
+  },
+  "step5": {
+    "status": "success",
+    "model": "StorePulse AI Heuristic Layout Simulator v2",
+    "used_empirical_transitions": false,
+    "comparison_count": 13,
+    "zone_comparison_count": 5
+  },
+  "step6": [
+    {
+      "metric": "Space Utilization",
+      "baseline": "31.7%",
+      "proposed": "31.7%",
+      "absolute_diff": "0.0%",
+      "pct_diff": "0.0%",
+      "direction": "SAME",
+      "source": "heuristic_estimate",
+      "confidence": "MEDIUM"
+    },
+    {
+      "metric": "Free Walking Space",
+      "baseline": "68.3%",
+      "proposed": "68.3%",
+      "absolute_diff": "0.0%",
+      "pct_diff": "0.0%",
+      "direction": "SAME",
+      "source": "heuristic_estimate",
+      "confidence": "MEDIUM"
+    },
+    {
+      "metric": "Avg Weighted Walking Distance",
+      "baseline": "0.583 units",
+      "proposed": "0.583 units",
+      "absolute_diff": "0.0 units",
+      "pct_diff": "0.0%",
+      "direction": "SAME",
+      "source": "heuristic_estimate",
+      "confidence": "MEDIUM"
+    },
+    {
+      "metric": "Checkout Accessibility Distance",
+      "baseline": "0.725 units",
+      "proposed": "0.725 units",
+      "absolute_diff": "0.0 units",
+      "pct_diff": "0.0%",
+      "direction": "SAME",
+      "source": "heuristic_estimate",
+      "confidence": "MEDIUM"
+    },
+    {
+      "metric": "Route Conflict Score",
+      "baseline": "2.2",
+      "proposed": "2.2",
+      "absolute_diff": "0.0",
+      "pct_diff": "0.0%",
+      "direction": "SAME",
+      "source": "heuristic_estimate",
+      "confidence": "MEDIUM"
+    },
+    {
+      "metric": "Estimated Layout Flow Friction",
+      "baseline": "13.5",
+      "proposed": "13.5",
+      "absolute_diff": "0.0",
+      "pct_diff": "0.0%",
+      "direction": "SAME",
+      "source": "heuristic_estimate",
+      "confidence": "MEDIUM"
+    },
+    {
+      "metric": "Predicted Bottleneck Risk Index",
+      "baseline": "46.5",
+      "proposed": "46.5",
+      "absolute_diff": "0.0",
+      "pct_diff": "0.0%",
+      "direction": "SAME",
+      "source": "heuristic_estimate",
+      "confidence": "MEDIUM"
+    },
+    {
+      "metric": "Element Count",
+      "baseline": "10 items",
+      "proposed": "10 items",
+      "absolute_diff": "0 items",
+      "pct_diff": "0.0%",
+      "direction": "SAME",
+      "source": "heuristic_estimate",
+      "confidence": "MEDIUM"
+    },
+    {
+      "metric": "[MEASURED] Entrance Avg Dwell",
+      "baseline": "0.0s",
+      "proposed": "Requires physical trial",
+      "absolute_diff": "N/A",
+      "pct_diff": "N/A",
+      "direction": "N/A",
+      "source": "real_measurement",
+      "confidence": "MEDIUM"
+    },
+    {
+      "metric": "[MEASURED] Checkout Avg Dwell",
+      "baseline": "0.0s",
+      "proposed": "Requires physical trial",
+      "absolute_diff": "N/A",
+      "pct_diff": "N/A",
+      "direction": "N/A",
+      "source": "real_measurement",
+      "confidence": "MEDIUM"
+    },
+    {
+      "metric": "[MEASURED] Electronics Avg Dwell",
+      "baseline": "0.0s",
+      "proposed": "Requires physical trial",
+      "absolute_diff": "N/A",
+      "pct_diff": "N/A",
+      "direction": "N/A",
+      "source": "real_measurement",
+      "confidence": "MEDIUM"
+    },
+    {
+      "metric": "[MEASURED] Grocery Avg Dwell",
+      "baseline": "0.0s",
+      "proposed": "Requires physical trial",
+      "absolute_diff": "N/A",
+      "pct_diff": "N/A",
+      "direction": "N/A",
+      "source": "real_measurement",
+      "confidence": "MEDIUM"
+    },
+    {
+      "metric": "[MEASURED] Promo Display Avg Dwell",
+      "baseline": "0.0s",
+      "proposed": "Requires physical trial",
+      "absolute_diff": "N/A",
+      "pct_diff": "N/A",
+      "direction": "N/A",
+      "source": "real_measurement",
+      "confidence": "MEDIUM"
+    }
+  ],
+  "step7": [
+    {
+      "zone_id": "electronics",
+      "zone_name": "Electronics",
+      "baseline_clearance": 0.025,
+      "proposed_clearance": 0.025,
+      "baseline_clearance_pct": 2.5,
+      "proposed_clearance_pct": 2.5,
+      "clearance_change": 0.0,
+      "baseline_risk": "CRITICAL",
+      "proposed_risk": "CRITICAL",
+      "risk_direction": "SAME",
+      "risk_change": "SAME",
+      "dwell_impact": "Neutral dwell impact",
+      "estimated_dwell_impact": "Neutral dwell impact: clearance preserved",
+      "confidence": "MEDIUM"
+    },
+    {
+      "zone_id": "checkout",
+      "zone_name": "Checkout",
+      "baseline_clearance": 0.071,
+      "proposed_clearance": 0.071,
+      "baseline_clearance_pct": 7.1,
+      "proposed_clearance_pct": 7.1,
+      "clearance_change": 0.0,
+      "baseline_risk": "CRITICAL",
+      "proposed_risk": "CRITICAL",
+      "risk_direction": "SAME",
+      "risk_change": "SAME",
+      "dwell_impact": "Neutral dwell impact",
+      "estimated_dwell_impact": "Neutral dwell impact: clearance preserved",
+      "confidence": "MEDIUM"
+    },
+    {
+      "zone_id": "entrance",
+      "zone_name": "Entrance",
+      "baseline_clearance": 0.214,
+      "proposed_clearance": 0.214,
+      "baseline_clearance_pct": 21.4,
+      "proposed_clearance_pct": 21.4,
+      "clearance_change": 0.0,
+      "baseline_risk": "MEDIUM",
+      "proposed_risk": "MEDIUM",
+      "risk_direction": "SAME",
+      "risk_change": "SAME",
+      "dwell_impact": "Neutral dwell impact",
+      "estimated_dwell_impact": "Neutral dwell impact: clearance preserved",
+      "confidence": "MEDIUM"
+    },
+    {
+      "zone_id": "grocery",
+      "zone_name": "Grocery",
+      "baseline_clearance": 0.043,
+      "proposed_clearance": 0.043,
+      "baseline_clearance_pct": 4.3,
+      "proposed_clearance_pct": 4.3,
+      "clearance_change": 0.0,
+      "baseline_risk": "CRITICAL",
+      "proposed_risk": "CRITICAL",
+      "risk_direction": "SAME",
+      "risk_change": "SAME",
+      "dwell_impact": "Neutral dwell impact",
+      "estimated_dwell_impact": "Neutral dwell impact: clearance preserved",
+      "confidence": "MEDIUM"
+    },
+    {
+      "zone_id": "promo",
+      "zone_name": "Promo Display",
+      "baseline_clearance": 0.035,
+      "proposed_clearance": 0.06,
+      "baseline_clearance_pct": 3.5,
+      "proposed_clearance_pct": 6.0,
+      "clearance_change": 0.025,
+      "baseline_risk": "CRITICAL",
+      "proposed_risk": "CRITICAL",
+      "risk_direction": "BETTER",
+      "risk_change": "BETTER",
+      "dwell_impact": "Increased browsing area (+0% bottleneck dwell)",
+      "estimated_dwell_impact": "Increased aisle clearance; fluid customer movement",
+      "confidence": "MEDIUM"
+    }
+  ],
+  "step8": {
+    "reloaded_id": "proposed_scenario_1",
+    "reloaded_name": "Proposed Layout Scenario 1",
+    "element_count": 10
+  }
+}

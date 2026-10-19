@@ -3,9 +3,10 @@
 // Developer: Omkar Gurav
 // Uses SVG + React state for drag-and-drop without external DnD libraries
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
-  Save, Trash2, RotateCcw, Copy, Info, Plus, Layout,
-  Grid, Move, Maximize2
+  Save, Trash2, RotateCcw, RotateCw, Copy, Info, Plus, Layout,
+  Grid, Move, Maximize2, Undo, Play, AlertTriangle, CheckCircle2, ShieldAlert
 } from 'lucide-react';
 
 const API = 'http://localhost:8000';
@@ -41,19 +42,23 @@ const DEFAULT_ELEMENTS = [
 ];
 
 export default function WhatIfSimulator() {
+  const navigate = useNavigate();
   const [elements, setElements] = useState(DEFAULT_ELEMENTS);
+  const [undoStack, setUndoStack] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [activeType, setActiveType] = useState('shelf');
   const [mode, setMode] = useState('select'); // 'select' | 'add'
   const [layoutName, setLayoutName] = useState('Proposed Layout 1');
   const [saving, setSaving] = useState(false);
+  const [validating, setValidating] = useState(false);
+  const [validationResult, setValidationResult] = useState(null);
   const [savedMsg, setSavedMsg] = useState('');
   const [layouts, setLayouts] = useState([]);
   const [showLayouts, setShowLayouts] = useState(false);
 
   const svgRef = useRef(null);
-  const dragging = useRef(null);   // { id, startX, startY, elX, elY }
-  const resizing = useRef(null);   // { id, startX, startY, w0, h0 }
+  const dragging = useRef(null);   // { id, startX, startY, elX, elY, initialElements }
+  const resizing = useRef(null);   // { id, startX, startY, w0, h0, initialElements }
 
   // Load layouts from backend on mount
   useEffect(() => {
@@ -67,6 +72,44 @@ export default function WhatIfSimulator() {
       setLayouts(json.layouts || []);
     } catch { }
   };
+
+  const pushHistory = (currentEls = elements) => {
+    setUndoStack(prev => [...prev.slice(-19), JSON.parse(JSON.stringify(currentEls))]);
+  };
+
+  const undo = () => {
+    if (undoStack.length === 0) return;
+    const prev = undoStack[undoStack.length - 1];
+    setUndoStack(s => s.slice(0, -1));
+    setElements(prev);
+    setValidationResult(null);
+  };
+
+  // ── Collision / Overlap detection ──────────────────────────────────
+  const findOverlaps = () => {
+    const pairs = [];
+    const collidingIds = new Set();
+    for (let i = 0; i < elements.length; i++) {
+      for (let j = i + 1; j < elements.length; j++) {
+        const a = elements[i];
+        const b = elements[j];
+        if (a.x < b.x + b.width && a.x + a.width > b.x &&
+            a.y < b.y + b.height && a.y + a.height > b.y) {
+          pairs.push({
+            labelA: a.label || a.id,
+            labelB: b.label || b.id,
+            idA: a.id,
+            idB: b.id,
+          });
+          collidingIds.add(a.id);
+          collidingIds.add(b.id);
+        }
+      }
+    }
+    return { pairs, collidingIds };
+  };
+
+  const { pairs: overlapPairs, collidingIds } = findOverlaps();
 
   // ── Canvas event handlers ──────────────────────────────────────────
 
@@ -83,6 +126,7 @@ export default function WhatIfSimulator() {
 
   const handleCanvasClick = (e) => {
     if (mode !== 'add') return;
+    pushHistory();
     const { x, y } = getSVGCoords(e);
     const typeInfo = ELEMENT_TYPES.find(t => t.type === activeType);
     const newEl = {
@@ -98,6 +142,7 @@ export default function WhatIfSimulator() {
     setElements(prev => [...prev, newEl]);
     setSelectedId(newEl.id);
     setMode('select');
+    setValidationResult(null);
   };
 
   const handleElMouseDown = (e, id) => {
@@ -106,7 +151,7 @@ export default function WhatIfSimulator() {
     setSelectedId(id);
     const { x, y } = getSVGCoords(e);
     const el = elements.find(el => el.id === id);
-    dragging.current = { id, startX: x, startY: y, elX: el.x, elY: el.y };
+    dragging.current = { id, startX: x, startY: y, elX: el.x, elY: el.y, snapshot: JSON.parse(JSON.stringify(elements)) };
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
   };
@@ -115,7 +160,7 @@ export default function WhatIfSimulator() {
     e.stopPropagation();
     const { x, y } = getSVGCoords(e);
     const el = elements.find(el => el.id === id);
-    resizing.current = { id, startX: x, startY: y, w0: el.width, h0: el.height };
+    resizing.current = { id, startX: x, startY: y, w0: el.width, h0: el.height, snapshot: JSON.parse(JSON.stringify(elements)) };
     window.addEventListener('mousemove', handleResizeMove);
     window.addEventListener('mouseup', handleResizeUp);
   };
@@ -130,13 +175,17 @@ export default function WhatIfSimulator() {
     setElements(prev => prev.map(el =>
       el.id === dragging.current.id ? { ...el, x: Math.max(0, nx), y: Math.max(0, ny) } : el
     ));
+    setValidationResult(null);
   }, []);
 
   const handleMouseUp = useCallback(() => {
+    if (dragging.current && dragging.current.snapshot) {
+      pushHistory(dragging.current.snapshot);
+    }
     dragging.current = null;
     window.removeEventListener('mousemove', handleMouseMove);
     window.removeEventListener('mouseup', handleMouseUp);
-  }, [handleMouseMove]);
+  }, []);
 
   const handleResizeMove = useCallback((e) => {
     if (!resizing.current) return;
@@ -160,22 +209,68 @@ export default function WhatIfSimulator() {
 
   const deleteSelected = () => {
     if (!selectedId) return;
+    pushHistory();
     setElements(prev => prev.filter(e => e.id !== selectedId));
     setSelectedId(null);
+    setValidationResult(null);
   };
 
   const duplicateSelected = () => {
     const el = elements.find(e => e.id === selectedId);
     if (!el) return;
-    const newEl = { ...el, id: makeId(), x: el.x + GRID_SIZE, y: el.y + GRID_SIZE };
+    pushHistory();
+    const newEl = { ...el, id: makeId(), x: Math.min(CANVAS_W - el.width, el.x + GRID_SIZE), y: Math.min(CANVAS_H - el.height, el.y + GRID_SIZE) };
     setElements(prev => [...prev, newEl]);
     setSelectedId(newEl.id);
+    setValidationResult(null);
+  };
+
+  const rotateSelected = () => {
+    const el = elements.find(e => e.id === selectedId);
+    if (!el) return;
+    pushHistory();
+    setElements(prev => prev.map(e =>
+      e.id === selectedId ? { ...e, rotation: ((e.rotation || 0) + 90) % 360 } : e
+    ));
+    setValidationResult(null);
   };
 
   const resetToDefault = () => {
-    if (!window.confirm('Reset to default layout? All changes will be lost.')) return;
+    if (!window.confirm('Reset to default layout? All unsaved changes will be lost.')) return;
+    pushHistory();
     setElements(DEFAULT_ELEMENTS);
     setSelectedId(null);
+    setValidationResult(null);
+  };
+
+  const resetToBaseline = async () => {
+    try {
+      const res = await fetch(`${API}/api/layouts/baseline`);
+      if (res.ok) {
+        const json = await res.json();
+        const layout = json.layout;
+        if (layout?.elements) {
+          pushHistory();
+          const els = layout.elements.map(e => ({
+            ...e,
+            x: e.x <= 1.0 ? Math.round(e.x * CANVAS_W) : e.x,
+            y: e.y <= 1.0 ? Math.round(e.y * CANVAS_H) : e.y,
+            width: e.width <= 1.0 ? Math.round(e.width * CANVAS_W) : e.width,
+            height: e.height <= 1.0 ? Math.round(e.height * CANVAS_H) : e.height,
+          }));
+          setElements(els);
+          setLayoutName(`${layout.name || 'Baseline'} (Proposed)`);
+          setSelectedId(null);
+          setValidationResult(null);
+          setSavedMsg('✓ Reset canvas to Baseline layout');
+          setTimeout(() => setSavedMsg(''), 3000);
+          return;
+        }
+      }
+      resetToDefault();
+    } catch {
+      resetToDefault();
+    }
   };
 
   const saveLayout = async (isBaseline = false) => {
@@ -201,15 +296,57 @@ export default function WhatIfSimulator() {
         body: JSON.stringify(body),
       });
       if (res.ok) {
+        const saved = await res.json();
         setSavedMsg(isBaseline ? '✓ Saved as baseline' : '✓ Layout saved');
         fetchLayouts();
         setTimeout(() => setSavedMsg(''), 3000);
+        return saved.id || (isBaseline ? 'baseline' : undefined);
       }
     } catch (e) {
       setSavedMsg('⚠ Save failed (backend offline)');
       setTimeout(() => setSavedMsg(''), 3000);
     } finally {
       setSaving(false);
+    }
+    return null;
+  };
+
+  const validateGeometry = async () => {
+    setValidating(true);
+    try {
+      const body = {
+        name: layoutName,
+        description: 'Geometry validation request',
+        elements: elements.map(e => ({
+          ...e,
+          x: e.x > 1 ? Number((e.x / CANVAS_W).toFixed(4)) : e.x,
+          y: e.y > 1 ? Number((e.y / CANVAS_H).toFixed(4)) : e.y,
+          width: e.width > 1 ? Number((e.width / CANVAS_W).toFixed(4)) : e.width,
+          height: e.height > 1 ? Number((e.height / CANVAS_H).toFixed(4)) : e.height,
+        })),
+        zones: [],
+      };
+      const res = await fetch(`${API}/api/layouts/validate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        setValidationResult(json);
+      }
+    } catch {
+      setSavedMsg('⚠ Backend offline for validation');
+      setTimeout(() => setSavedMsg(''), 3000);
+    } finally {
+      setValidating(false);
+    }
+  };
+
+  const simulateProposed = async () => {
+    const savedId = await saveLayout(false);
+    if (savedId) {
+      navigate('/comparison');
     }
   };
 
@@ -219,7 +356,7 @@ export default function WhatIfSimulator() {
       const json = await res.json();
       const layout = json.layout;
       if (layout?.elements) {
-        // Scale from ratio to pixels
+        pushHistory();
         const els = layout.elements.map(e => ({
           ...e,
           x: e.x <= 1.0 ? Math.round(e.x * CANVAS_W) : e.x,
@@ -230,6 +367,8 @@ export default function WhatIfSimulator() {
         setElements(els);
         setLayoutName(layout.name);
         setShowLayouts(false);
+        setSelectedId(null);
+        setValidationResult(null);
         setSavedMsg(`✓ Loaded: ${layout.name}`);
         setTimeout(() => setSavedMsg(''), 3000);
       }
@@ -244,18 +383,29 @@ export default function WhatIfSimulator() {
         <Info size={13} style={{ flexShrink: 0, marginTop: 1 }} />
         <span>
           <strong>Heuristic simulation only.</strong> Moving virtual shelves estimates geometric metrics
-          (walking distance, space utilization) — it does NOT predict real customer behavior.
+          (walking distance, space utilization, and obstacle clearance) — it does NOT predict real customer behavior.
           All outputs are labeled as estimates. Field validation required before operational decisions.
         </span>
       </div>
 
-      <div className="simulator-layout" style={{ gridTemplateColumns: '260px 1fr' }}>
+      <div className="simulator-layout" style={{ gridTemplateColumns: '270px 1fr' }}>
         {/* Left panel */}
         <div className="simulator-panel">
-          {/* Mode */}
+          {/* Mode & Undo */}
           <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 8 }}>
-              Mode
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>
+                Mode & History
+              </div>
+              <button
+                className="sim-btn"
+                style={{ padding: '3px 8px', fontSize: 11 }}
+                onClick={undo}
+                disabled={undoStack.length === 0}
+                title="Undo last change"
+              >
+                <Undo size={11} /> Undo ({undoStack.length})
+              </button>
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
               <button className={`sim-btn${mode === 'select' ? ' active' : ''}`} onClick={() => setMode('select')}>
@@ -290,9 +440,9 @@ export default function WhatIfSimulator() {
 
           {/* Selected element */}
           {selectedEl && (
-            <div style={{ marginBottom: 16 }}>
+            <div style={{ marginBottom: 16, background: 'rgba(255,255,255,0.02)', padding: 10, borderRadius: 8, border: '1px solid var(--border-subtle)' }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 8 }}>
-                Selected: {selectedEl.label}
+                Selected: {selectedEl.label} ({selectedEl.element_type})
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, fontSize: 11 }}>
                 {['x','y','width','height'].map(field => (
@@ -305,9 +455,11 @@ export default function WhatIfSimulator() {
                       value={selectedEl[field]}
                       onChange={e => {
                         const val = parseInt(e.target.value) || 0;
+                        pushHistory();
                         setElements(prev => prev.map(el =>
                           el.id === selectedId ? { ...el, [field]: snapToGrid(val) } : el
                         ));
+                        setValidationResult(null);
                       }}
                     />
                   </div>
@@ -327,12 +479,15 @@ export default function WhatIfSimulator() {
                   }}
                 />
               </div>
-              <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
-                <button className="sim-btn" style={{ flex: 1 }} onClick={duplicateSelected}>
-                  <Copy size={12} /> Clone
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4, marginTop: 10 }}>
+                <button className="sim-btn" style={{ padding: '4px 6px', fontSize: 11 }} onClick={rotateSelected} title="Rotate 90°">
+                  <RotateCw size={11} /> 90°
                 </button>
-                <button className="sim-btn danger" style={{ flex: 1 }} onClick={deleteSelected}>
-                  <Trash2 size={12} /> Delete
+                <button className="sim-btn" style={{ padding: '4px 6px', fontSize: 11 }} onClick={duplicateSelected} title="Duplicate element">
+                  <Copy size={11} /> Clone
+                </button>
+                <button className="sim-btn danger" style={{ padding: '4px 6px', fontSize: 11 }} onClick={deleteSelected} title="Delete element">
+                  <Trash2 size={11} /> Del
                 </button>
               </div>
             </div>
@@ -340,7 +495,7 @@ export default function WhatIfSimulator() {
 
           {/* Layout name */}
           <div style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>Layout Name</div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>Proposed Layout Name</div>
             <input
               type="text"
               className="input-field"
@@ -350,25 +505,56 @@ export default function WhatIfSimulator() {
             />
           </div>
 
-          {/* Save actions */}
+          {/* Direct Simulation & Validation actions */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <button className="sim-btn primary" onClick={() => saveLayout(false)} disabled={saving}>
+            <button className="sim-btn primary" onClick={simulateProposed} disabled={saving} style={{ fontWeight: 600 }}>
+              <Play size={13} /> Simulate & Compare
+            </button>
+            <button className="sim-btn" onClick={validateGeometry} disabled={validating}>
+              <CheckCircle2 size={13} /> {validating ? 'Validating...' : 'Validate Geometry'}
+            </button>
+            <button className="sim-btn success" onClick={() => saveLayout(false)} disabled={saving}>
               <Save size={13} /> {saving ? 'Saving...' : 'Save Proposed Layout'}
             </button>
-            <button className="sim-btn success" onClick={() => saveLayout(true)} disabled={saving}>
-              <Save size={13} /> Save as Baseline
+            <button className="sim-btn" onClick={() => saveLayout(true)} disabled={saving}>
+              <Save size={13} /> Overwrite Baseline
             </button>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button className="sim-btn" style={{ flex: 1 }} onClick={resetToBaseline} title="Load baseline layout into canvas">
+                <RotateCcw size={12} /> Baseline
+              </button>
+              <button className="sim-btn" style={{ flex: 1 }} onClick={resetToDefault} title="Reset to standard template">
+                <RotateCcw size={12} /> Default
+              </button>
+            </div>
             <button className="sim-btn" onClick={() => setShowLayouts(s => !s)}>
               <Layout size={13} /> {showLayouts ? 'Hide' : 'Browse'} Layouts
-            </button>
-            <button className="sim-btn" onClick={resetToDefault}>
-              <RotateCcw size={13} /> Reset to Default
             </button>
           </div>
 
           {savedMsg && (
             <div style={{ marginTop: 10, fontSize: 12, color: savedMsg.startsWith('✓') ? '#10b981' : '#f59e0b', fontWeight: 600 }}>
               {savedMsg}
+            </div>
+          )}
+
+          {/* Validation Result Box */}
+          {validationResult && (
+            <div style={{
+              marginTop: 12, padding: 10, borderRadius: 6,
+              background: validationResult.valid ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)',
+              border: `1px solid ${validationResult.valid ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'}`,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, color: validationResult.valid ? '#10b981' : '#ef4444' }}>
+                {validationResult.valid ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
+                {validationResult.valid ? 'Geometry Valid' : 'Geometry Issues Detected'}
+              </div>
+              {validationResult.errors?.map((err, i) => (
+                <div key={i} style={{ fontSize: 11, color: '#ef4444', marginTop: 4 }}>• {err}</div>
+              ))}
+              {validationResult.warnings?.map((w, i) => (
+                <div key={i} style={{ fontSize: 11, color: '#f59e0b', marginTop: 4 }}>• {w}</div>
+              ))}
             </div>
           )}
 
@@ -400,13 +586,31 @@ export default function WhatIfSimulator() {
               Elements: <strong>{elements.length}</strong><br />
               Shelves: <strong>{elements.filter(e => e.element_type === 'shelf').length}</strong><br />
               Checkouts: <strong>{elements.filter(e => e.element_type === 'checkout').length}</strong><br />
-              Area used: <strong>{Math.round(elements.reduce((s, e) => s + e.width * e.height, 0) / (CANVAS_W * CANVAS_H) * 100)}%</strong>
+              Area used: <strong>{Math.round(elements.reduce((s, e) => s + e.width * e.height, 0) / (CANVAS_W * CANVAS_H) * 100)}%</strong><br />
+              Overlap pairs: <strong style={{ color: overlapPairs.length > 0 ? '#ef4444' : '#10b981' }}>{overlapPairs.length}</strong>
             </div>
           </div>
         </div>
 
         {/* Canvas */}
         <div className="simulator-canvas-wrapper">
+          {/* Overlap Collision Alert Banner */}
+          {overlapPairs.length > 0 && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: '10px 14px', marginBottom: 12,
+              background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)',
+              borderRadius: 6, color: '#fca5a5', fontSize: 12
+            }}>
+              <ShieldAlert size={18} style={{ color: '#ef4444', flexShrink: 0 }} />
+              <div>
+                <strong>Aisle Collision Warning:</strong> {overlapPairs.length} overlapping fixture pair(s) detected:
+                {' '}{overlapPairs.map(p => `${p.labelA} ↔ ${p.labelB}`).join(', ')}.
+                {' '}Overlaps obstruct customer walkable paths and increase route conflict.
+              </div>
+            </div>
+          )}
+
           <div className="simulator-toolbar">
             <span style={{ fontSize: 12, color: 'var(--text-muted)', marginRight: 4 }}>
               Mode: <strong style={{ color: mode === 'add' ? '#6366f1' : 'var(--text-secondary)' }}>{mode === 'add' ? `Add ${activeType}` : 'Select & Move'}</strong>
@@ -417,7 +621,7 @@ export default function WhatIfSimulator() {
               </span>
             )}
             <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)' }}>
-              Grid: {GRID_SIZE}px · Snapping ON
+              Canvas: {CANVAS_W}×{CANVAS_H}px · Grid: {GRID_SIZE}px Snapping
             </span>
           </div>
 
@@ -447,6 +651,8 @@ export default function WhatIfSimulator() {
               {elements.map(el => {
                 const typeInfo = ELEMENT_TYPES.find(t => t.type === el.element_type) || ELEMENT_TYPES[0];
                 const isSelected = el.id === selectedId;
+                const isColliding = collidingIds.has(el.id);
+
                 return (
                   <g key={el.id}
                     transform={`translate(${el.x},${el.y}) rotate(${el.rotation || 0},${el.width/2},${el.height/2})`}
@@ -456,10 +662,11 @@ export default function WhatIfSimulator() {
                     <rect
                       width={el.width} height={el.height}
                       rx="4"
-                      fill={typeInfo.bg}
-                      stroke={isSelected ? '#06b6d4' : typeInfo.color}
-                      strokeWidth={isSelected ? 2.5 : 1.5}
-                      filter={isSelected ? 'drop-shadow(0 0 8px rgba(6,182,212,0.5))' : undefined}
+                      fill={isColliding ? 'rgba(239,68,68,0.25)' : typeInfo.bg}
+                      stroke={isSelected ? '#06b6d4' : isColliding ? '#ef4444' : typeInfo.color}
+                      strokeWidth={isSelected ? 2.5 : isColliding ? 2 : 1.5}
+                      strokeDasharray={isColliding ? '4 2' : undefined}
+                      filter={isSelected ? 'drop-shadow(0 0 8px rgba(6,182,212,0.5))' : isColliding ? 'drop-shadow(0 0 8px rgba(239,68,68,0.5))' : undefined}
                     />
                     <text
                       x={el.width / 2} y={el.height / 2 - 6}
@@ -473,12 +680,19 @@ export default function WhatIfSimulator() {
                     <text
                       x={el.width / 2} y={el.height / 2 + 12}
                       textAnchor="middle"
-                      fill="rgba(255,255,255,0.8)"
+                      fill="rgba(255,255,255,0.85)"
                       fontSize={Math.max(8, Math.min(12, el.width / 7))}
-                      style={{ pointerEvents: 'none' }}
+                      style={{ pointerEvents: 'none', fontWeight: isColliding ? 'bold' : 'normal' }}
                     >
                       {el.label}
                     </text>
+                    {/* Collision Indicator mark */}
+                    {isColliding && (
+                      <circle
+                        cx={el.width - 8} cy={8} r={5}
+                        fill="#ef4444"
+                      />
+                    )}
                     {/* Resize handle */}
                     {isSelected && (
                       <rect
@@ -497,13 +711,17 @@ export default function WhatIfSimulator() {
           </div>
 
           {/* Legend */}
-          <div style={{ padding: '8px 16px', borderTop: '1px solid var(--border-subtle)', display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+          <div style={{ padding: '8px 16px', borderTop: '1px solid var(--border-subtle)', display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
             {ELEMENT_TYPES.map(t => (
               <div key={t.type} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--text-muted)' }}>
                 <div style={{ width: 10, height: 10, borderRadius: 2, background: t.color, opacity: 0.7 }} />
                 {t.label}
               </div>
             ))}
+            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#fca5a5' }}>
+              <div style={{ width: 10, height: 10, borderRadius: 2, border: '1px dashed #ef4444', background: 'rgba(239,68,68,0.3)' }} />
+              Overlap Collision
+            </div>
           </div>
         </div>
       </div>

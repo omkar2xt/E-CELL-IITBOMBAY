@@ -35,21 +35,59 @@ class AnalyticsPipeline:
         self.frame_width = 0
         self.frame_height = 0
 
+        # Video source and connection state
+        self.source = be_config.VIDEO_SOURCE
+        self.source_type = "unknown"
+        self.connection_status = "stopped"
+        self.error_message: Optional[str] = None
+        self.is_demo = False
+        self.cap: Optional[cv2.VideoCapture] = None
+
         # Load default zones on startup
         zone_analytics_engine.set_zones(ZoneAnalyticsEngine.default_zones())
+
+    def _determine_source_type(self, source) -> str:
+        if isinstance(source, int):
+            return "webcam"
+        src_str = str(source).strip()
+        if src_str.startswith(("rtsp://", "http://", "https://", "rtsps://")):
+            return "stream"
+        return "file"
 
     def start(self):
         if not self.is_running:
             self.is_running = True
+            self.connection_status = "connecting"
             self.thread = threading.Thread(target=self._run_loop, daemon=True)
             self.thread.start()
-            print("[Pipeline] Started background thread")
+            print(f"[Pipeline] Started background thread (source: {self.source})")
 
     def stop(self):
         self.is_running = False
-        if self.thread:
+        if self.thread and self.thread.is_alive():
             self.thread.join(timeout=2.0)
             print("[Pipeline] Stopped background thread")
+        with self.lock:
+            if self.cap is not None:
+                try:
+                    self.cap.release()
+                except Exception:
+                    pass
+                self.cap = None
+            self.connection_status = "stopped"
+
+    def switch_source(self, new_source):
+        """Switch video source dynamically with clean resource handoff."""
+        resolved = be_config._resolve_video_source(new_source)
+        print(f"[Pipeline] Switching source from {self.source} -> {resolved}")
+        was_running = self.is_running
+        if was_running:
+            self.stop()
+        with self.lock:
+            self.source = resolved
+            self.source_type = self._determine_source_type(resolved)
+        if was_running:
+            self.start()
 
     def get_latest_snapshot(self):
         with self.lock:
@@ -85,18 +123,71 @@ class AnalyticsPipeline:
         except Exception:
             return None
 
+    def _attempt_reconnect(self, source, retries: int = 5) -> Optional[cv2.VideoCapture]:
+        """Attempt to reconnect to a camera/stream with bounded exponential delay."""
+        delay = getattr(be_config, 'CAMERA_RECONNECT_DELAY_BASE', 1.0)
+        max_delay = getattr(be_config, 'CAMERA_RECONNECT_DELAY_MAX', 10.0)
+
+        for attempt in range(1, retries + 1):
+            if not self.is_running:
+                return None
+            print(f"[Pipeline] Reconnecting to {source} (attempt {attempt}/{retries}) in {delay:.1f}s...")
+            self.connection_status = "reconnecting"
+            time.sleep(delay)
+
+            try:
+                cap = cv2.VideoCapture(source)
+                if cap.isOpened():
+                    print(f"[Pipeline] Successfully reconnected to {source} on attempt {attempt}")
+                    self.connection_status = "connected"
+                    self.error_message = None
+                    return cap
+                cap.release()
+            except Exception as e:
+                print(f"[Pipeline] Reconnection error on attempt {attempt}: {e}")
+
+            delay = min(max_delay, delay * 2.0)
+
+        return None
+
     def _run_loop(self):
         import analytics.config as an_config
 
         # Run demographics less frequently to save CPU on backend
         an_config.DEMO_ANALYSIS_INTERVAL = 30
 
-        cap = cv2.VideoCapture(be_config.VIDEO_SOURCE)
-        if not cap.isOpened():
-            print(f"[Pipeline] Error: Could not open video {be_config.VIDEO_SOURCE}")
-            print("[Pipeline] Running in demo mode (no video)")
+        self.source_type = self._determine_source_type(self.source)
+
+        # Check file existence if it's a file
+        if self.source_type == "file" and not os.path.exists(str(self.source)):
+            print(f"[Pipeline] Warning: Video file does not exist at {self.source}")
+            print("[Pipeline] Running in DEMO simulation mode")
+            self.connection_status = "demo"
+            self.is_demo = True
+            self.error_message = f"Video file not found: {self.source}"
             self._run_demo_loop()
             return
+
+        cap = cv2.VideoCapture(self.source)
+        if not cap.isOpened():
+            print(f"[Pipeline] Could not open video source: {self.source} (type: {self.source_type})")
+            # If camera or stream, attempt bounded reconnection before falling back
+            if self.source_type in ("webcam", "stream"):
+                cap = self._attempt_reconnect(self.source, retries=getattr(be_config, 'CAMERA_RECONNECT_MAX_RETRIES', 3))
+
+            if cap is None or not cap.isOpened():
+                print(f"[Pipeline] Source {self.source} unavailable. Falling back to DEMO mode.")
+                self.connection_status = "demo"
+                self.is_demo = True
+                self.error_message = f"Video source unavailable: {self.source}"
+                self._run_demo_loop()
+                return
+
+        with self.lock:
+            self.cap = cap
+            self.connection_status = "connected"
+            self.is_demo = False
+            self.error_message = None
 
         w, h, fps = get_dims(cap)
         self.frame_width = w
@@ -108,7 +199,6 @@ class AnalyticsPipeline:
         heatmap = HeatmapGenerator(w, h)
         queue = QueueMonitor(w, h)
 
-        # Demographic estimation — disabled by default (privacy)
         demo = None
         if be_config.DEMOGRAPHICS_ENABLED:
             try:
@@ -124,9 +214,28 @@ class AnalyticsPipeline:
         while self.is_running:
             ret, frame = cap.read()
             if not ret:
-                # Loop video
-                cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                continue
+                if self.source_type == "file":
+                    # Loop video file cleanly
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    ret_retry, frame = cap.read()
+                    if not ret_retry:
+                        # Reopen video file
+                        cap.release()
+                        cap = cv2.VideoCapture(self.source)
+                        continue
+                else:
+                    # Live camera or stream dropped
+                    print(f"[Pipeline] Connection dropped on {self.source_type}. Initiating reconnection...")
+                    cap.release()
+                    cap = self._attempt_reconnect(self.source, retries=getattr(be_config, 'CAMERA_RECONNECT_MAX_RETRIES', 5))
+                    if cap is None or not cap.isOpened():
+                        print(f"[Pipeline] Camera recovery failed. Falling back to DEMO mode.")
+                        self.connection_status = "demo"
+                        self.is_demo = True
+                        self.error_message = f"Camera {self.source} disconnected."
+                        self._run_demo_loop()
+                        return
+                    continue
 
             frame_id += 1
 
@@ -145,8 +254,8 @@ class AnalyticsPipeline:
             heatmap.update(positions)
             queue.update(tracked)
 
-            # Phase 3: Zone analytics
-            zone_analytics_engine.update(tracked, w, h)
+            # Phase 3: Zone analytics with explicit elapsed timestamp
+            zone_analytics_engine.update(tracked, w, h, timestamp=now)
 
             if demo and demo.is_enabled:
                 demo.update(frame, tracked)
@@ -177,10 +286,11 @@ class AnalyticsPipeline:
                     if demo and demo.is_enabled:
                         demo_results = demo.get_results()
 
-                    zone_stats = zone_analytics_engine.get_zone_stats()
+                    zone_stats = zone_analytics_engine.get_zone_stats(current_time=now)
+                    bottlenecks = zone_analytics_engine.get_bottleneck_summary()
 
                     self.latest_payload = {
-                        "timestamp": time.time(),
+                        "timestamp": now,
                         "frame_id": frame_id,
                         "count_in": counter.count_in,
                         "count_out": counter.count_out,
@@ -189,6 +299,9 @@ class AnalyticsPipeline:
                         "queue_alert": queue.is_alert,
                         "fps": round(fps_smoothed, 1),
                         "tracked_count": len(tracked),
+                        "is_demo": False,
+                        "source_type": self.source_type,
+                        "connection_status": self.connection_status,
                         "demographics": {
                             "enabled": bool(demo and demo.is_enabled),
                             "sample_count": demo_results.get("sample_count", 0),
@@ -196,17 +309,22 @@ class AnalyticsPipeline:
                             "age_distribution": demo_results.get("age_distribution", {}),
                         },
                         "zone_stats": zone_stats,
+                        "bottlenecks": bottlenecks,
                     }
+
 
             # Cleanup old trajectories every 300 frames
             if frame_id % 300 == 0:
                 active = {p.track_id for p in tracked}
                 tracker.cleanup_old_tracks(active)
+                counter.cleanup_old_tracks(active)
 
             # Throttle to approximate video FPS
             time.sleep(1.0 / max(30, fps))
 
-        cap.release()
+        if cap is not None:
+            cap.release()
+
 
     def _run_demo_loop(self):
         """
@@ -269,8 +387,9 @@ class AnalyticsPipeline:
 
                 sim_people.append(DemoTrackedPerson(a["id"], (int(a["x"]), int(a["y"]))))
 
-            # Feed to zone analytics engine
-            zone_analytics_engine.update(sim_people, frame_width=sw, frame_height=sh)
+            now = time.time()
+            # Feed to zone analytics engine with timestamp
+            zone_analytics_engine.update(sim_people, frame_width=sw, frame_height=sh, timestamp=now)
 
             if frame_id % 60 == 0:
                 base_in += random.choice([0, 1])
@@ -325,9 +444,10 @@ class AnalyticsPipeline:
 
             with self.lock:
                 if frame_id % be_config.BROADCAST_INTERVAL == 0:
-                    zone_stats = zone_analytics_engine.get_zone_stats()
+                    zone_stats = zone_analytics_engine.get_zone_stats(current_time=now)
+                    bottlenecks = zone_analytics_engine.get_bottleneck_summary()
                     self.latest_payload = {
-                        "timestamp": time.time(),
+                        "timestamp": now,
                         "frame_id": frame_id,
                         "count_in": base_in,
                         "count_out": base_out,
@@ -337,6 +457,8 @@ class AnalyticsPipeline:
                         "fps": 30.0,
                         "tracked_count": len(sim_people),
                         "is_demo": True,
+                        "source_type": "demo",
+                        "connection_status": "demo",
                         "demographics": {
                             "enabled": False,
                             "sample_count": 0,
@@ -344,7 +466,9 @@ class AnalyticsPipeline:
                             "age_distribution": {},
                         },
                         "zone_stats": zone_stats,
+                        "bottlenecks": bottlenecks,
                     }
+
 
             time.sleep(1.0 / 30.0)
 

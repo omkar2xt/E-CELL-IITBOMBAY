@@ -108,13 +108,21 @@ async def get_snapshot():
 
 @app.get("/health")
 async def health():
-    """Health check endpoint."""
+    """Health check endpoint with pipeline telemetry."""
     return {
         "status": "ok",
         "product": "StorePulse AI",
         "version": "1.0.0",
         "developer": "Omkar Gurav",
+        "pipeline": {
+            "running": pipeline_runner.is_running,
+            "connection_status": getattr(pipeline_runner, "connection_status", "unknown"),
+            "source_type": getattr(pipeline_runner, "source_type", "unknown"),
+            "is_demo": getattr(pipeline_runner, "is_demo", False),
+            "error_message": getattr(pipeline_runner, "error_message", None),
+        }
     }
+
 
 
 if __name__ == "__main__":
