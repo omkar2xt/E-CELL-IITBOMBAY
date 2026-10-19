@@ -15,6 +15,7 @@ import WhatIfSimulator from './pages/WhatIfSimulator';
 import ScenarioComparison from './pages/ScenarioComparison';
 import SettingsPage from './pages/Settings';
 import AlertLogs from './pages/AlertLogs';
+import OnboardingGuide from './components/OnboardingGuide';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useQueueHistory } from './hooks/useQueueHistory';
 import { WS_URL, API_BASE } from './config';
@@ -34,13 +35,33 @@ const PAGE_TITLES = {
   '/settings':   'Settings & Privacy',
 };
 
-function PageHeader({ path, wsStatus, data, onToggleMode }) {
+function PageHeader({ path, wsStatus, data, onToggleMode, onOpenGuide }) {
   const title = Object.entries(PAGE_TITLES).find(([p]) => path === p)?.[1] || 'StorePulse AI';
 
   return (
     <div className="page-header">
       <h2>{title}</h2>
       <div className="header-right">
+        <button
+          onClick={onOpenGuide}
+          className="mode-toggle-pill"
+          title="Open Onboarding Guide"
+          style={{
+            background: 'rgba(255, 255, 255, 0.05)',
+            color: 'var(--text-secondary)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: '20px',
+            padding: '4px 10px',
+            fontSize: '11px',
+            fontWeight: '600',
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '5px'
+          }}>
+          ✨ Tour Guide
+        </button>
+
         {data && (
           <button
             onClick={onToggleMode}
@@ -80,6 +101,8 @@ function AppInner() {
   const { data, status: wsStatus } = useWebSocket(WS_URL);
   const queueHistory = useQueueHistory(data?.queue_count);
   const [path, setPath] = useState(window.location.pathname);
+  // Guide appears automatically on initial load or reload; in-memory state resets on page refresh
+  const [showGuide, setShowGuide] = useState(true);
 
   useEffect(() => {
     const update = () => setPath(window.location.pathname);
@@ -104,7 +127,13 @@ function AppInner() {
     <div className="app-shell">
       <Sidebar wsStatus={wsStatus} queueAlert={data?.queue_alert} />
       <div className="main-area">
-        <PageHeader path={path} wsStatus={wsStatus} data={data} onToggleMode={handleToggleMode} />
+        <PageHeader
+          path={path}
+          wsStatus={wsStatus}
+          data={data}
+          onToggleMode={handleToggleMode}
+          onOpenGuide={() => setShowGuide(true)}
+        />
         <div className="page-content">
           <Routes>
             <Route path="/" element={<Overview data={data} queueHistory={queueHistory} wsStatus={wsStatus} />} />
@@ -121,6 +150,11 @@ function AppInner() {
           </Routes>
         </div>
       </div>
+      <OnboardingGuide
+        isOpen={showGuide}
+        onClose={() => setShowGuide(false)}
+        telemetryData={data}
+      />
     </div>
   );
 }
