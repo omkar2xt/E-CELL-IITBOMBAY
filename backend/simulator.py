@@ -180,6 +180,8 @@ class LayoutSimulator:
 
         return {
             "model": "StorePulse AI Heuristic Layout Simulator v2",
+            "is_synthetic": not used_empirical_transitions,
+            "data_source": "EMPIRICAL_TRANSITIONS" if used_empirical_transitions else "HEURISTIC_SIMULATION",
             "disclaimer": (
                 "All proposed values are heuristic estimates based on geometric "
                 "layout analysis and observed flow patterns. They do NOT predict "
@@ -526,20 +528,23 @@ class LayoutSimulator:
 # ── Data store for layouts ─────────────────────────────────────────────
 
 
+# ── Data store for layouts ─────────────────────────────────────────────
+
+
 class LayoutStore:
     """
-    Simple in-memory store for layout configurations.
-    Persists as long as the server is running.
+    Database-backed store for What-If layout configurations with in-memory caching.
+    Ensures layout persistence across server restarts and cloud deployments.
     """
 
     def __init__(self):
         self._layouts: Dict[str, LayoutConfig] = {}
         self._baseline_id: Optional[str] = None
         self._init_defaults()
+        self._load_from_database()
 
-    def _init_defaults(self):
-        """Initialize with a sample baseline layout."""
-        baseline = LayoutConfig(
+    def _default_baseline_config(self) -> LayoutConfig:
+        return LayoutConfig(
             id="baseline",
             name="Current Layout (Baseline)",
             description="Default store layout loaded at startup",
@@ -558,16 +563,119 @@ class LayoutStore:
             ],
             zones=[],
         )
+
+    def _init_defaults(self):
+        """Initialize in-memory baseline fallback."""
+        baseline = self._default_baseline_config()
         self._layouts["baseline"] = baseline
         self._baseline_id = "baseline"
+
+    def _load_from_database(self):
+        """Load layouts from persistent database."""
+        try:
+            import json
+            from backend.database.connection import get_db_context
+            from backend.database.models import LayoutModel
+
+            with get_db_context() as db:
+                db_layouts = db.query(LayoutModel).all()
+                if not db_layouts:
+                    baseline = self._default_baseline_config()
+                    self._persist_to_db(baseline)
+                    return
+
+                for row in db_layouts:
+                    elements_raw = json.loads(row.elements_json or "[]")
+                    zones_raw = json.loads(row.zones_json or "[]")
+                    elements = [
+                        ShelfElement(
+                            id=e["id"],
+                            element_type=e["element_type"],
+                            x=e["x"],
+                            y=e["y"],
+                            width=e["width"],
+                            height=e["height"],
+                            rotation=e.get("rotation", 0.0),
+                            label=e.get("label", "")
+                        )
+                        for e in elements_raw
+                    ]
+                    config = LayoutConfig(
+                        id=row.id,
+                        name=row.name,
+                        description=row.description or "",
+                        elements=elements,
+                        zones=zones_raw,
+                        is_baseline=bool(row.is_baseline),
+                        created_at=row.created_at or time.time()
+                    )
+                    self._layouts[config.id] = config
+                    if config.is_baseline:
+                        self._baseline_id = config.id
+        except Exception:
+            pass
+
+    def _persist_to_db(self, layout: LayoutConfig):
+        """Helper to write or update LayoutModel in DB."""
+        try:
+            import json
+            from backend.database.connection import get_db_context
+            from backend.database.models import LayoutModel
+
+            elements_dict = [
+                {
+                    "id": e.id,
+                    "element_type": e.element_type,
+                    "x": e.x,
+                    "y": e.y,
+                    "width": e.width,
+                    "height": e.height,
+                    "rotation": e.rotation,
+                    "label": e.label,
+                }
+                for e in (layout.elements or [])
+            ]
+
+            with get_db_context() as db:
+                if layout.is_baseline:
+                    db.query(LayoutModel).filter(LayoutModel.id != layout.id).update({"is_baseline": False})
+
+                existing = db.query(LayoutModel).filter(LayoutModel.id == layout.id).first()
+                if existing:
+                    existing.name = layout.name
+                    existing.description = layout.description
+                    existing.is_baseline = layout.is_baseline
+                    existing.elements_json = json.dumps(elements_dict)
+                    existing.zones_json = json.dumps(layout.zones or [])
+                    existing.updated_at = time.time()
+                else:
+                    new_layout = LayoutModel(
+                        id=layout.id,
+                        name=layout.name,
+                        description=layout.description,
+                        is_baseline=layout.is_baseline,
+                        elements_json=json.dumps(elements_dict),
+                        zones_json=json.dumps(layout.zones or []),
+                        created_at=layout.created_at or time.time(),
+                        updated_at=time.time()
+                    )
+                    db.add(new_layout)
+        except Exception:
+            pass
 
     def save_layout(self, layout: LayoutConfig) -> LayoutConfig:
         self._layouts[layout.id] = layout
         if layout.is_baseline:
             self._baseline_id = layout.id
+            for lid, l in self._layouts.items():
+                if lid != layout.id:
+                    l.is_baseline = False
+        self._persist_to_db(layout)
         return layout
 
     def get_layout(self, layout_id: str) -> Optional[LayoutConfig]:
+        if layout_id not in self._layouts:
+            self._load_from_database()
         return self._layouts.get(layout_id)
 
     def list_layouts(self) -> List[Dict]:
@@ -586,9 +694,22 @@ class LayoutStore:
     def delete_layout(self, layout_id: str) -> bool:
         if layout_id == self._baseline_id:
             return False  # Cannot delete baseline
-        return self._layouts.pop(layout_id, None) is not None
+        deleted = self._layouts.pop(layout_id, None) is not None
+        if deleted:
+            try:
+                from backend.database.connection import get_db_context
+                from backend.database.models import LayoutModel
+                with get_db_context() as db:
+                    row = db.query(LayoutModel).filter(LayoutModel.id == layout_id).first()
+                    if row:
+                        db.delete(row)
+            except Exception:
+                pass
+        return deleted
 
     def get_baseline(self) -> Optional[LayoutConfig]:
+        if not self._baseline_id or self._baseline_id not in self._layouts:
+            self._load_from_database()
         return self._layouts.get(self._baseline_id)
 
 

@@ -69,10 +69,13 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS — allow dashboard
+# CORS — allow dashboard and configured production origins
+cors_origins_env = os.getenv("CORS_ORIGINS", "*").strip()
+allowed_origins = [o.strip() for o in cors_origins_env.split(",") if o.strip()] if cors_origins_env != "*" else ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

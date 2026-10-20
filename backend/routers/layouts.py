@@ -217,4 +217,88 @@ def run_simulation(req: SimulationRequest):
         transition_data = None
 
     result = layout_simulator.simulate(baseline, proposed, real_analytics, transition_data)
+
+    b_m = result.get("baseline", {}).get("metrics", {})
+    p_m = result.get("proposed", {}).get("metrics", {})
+    b_dist = b_m.get("avg_weighted_walking_distance", 1.0)
+    p_dist = p_m.get("avg_weighted_walking_distance", 1.0)
+    walking_diff_pct = round(((p_dist - b_dist) / max(b_dist, 0.001)) * 100, 1)
+
+    conflict_score = float(p_m.get("route_conflict_score", 0.0))
+    bottleneck_risk_score = float(p_m.get("bottleneck_risk_index", 0.0))
+    space_utilization_score = float(p_m.get("space_utilization_pct", 0.0))
+    flow_friction_index = float(p_m.get("estimated_layout_friction", 0.0))
+    overall_score = round(max(0.0, min(100.0, 100.0 - (flow_friction_index * 0.4 + bottleneck_risk_score * 0.4 + conflict_score * 0.2))), 1)
+
+    result["overall_score"] = overall_score
+    result["walking_distance_change_pct"] = walking_diff_pct
+    result["conflict_score"] = conflict_score
+    result["bottleneck_risk_score"] = bottleneck_risk_score
+    result["space_utilization_score"] = space_utilization_score
+    result["flow_friction_index"] = flow_friction_index
+
+    # Persist simulation result to database
+    try:
+        import json
+        from backend.database.connection import get_db_context
+        from backend.database.models import SimulationResultModel
+
+        sim_id = str(uuid.uuid4())
+        is_synthetic = bool(result.get("is_synthetic", True) or real_analytics is None)
+
+        with get_db_context() as db:
+            sim_record = SimulationResultModel(
+                id=sim_id,
+                baseline_id=req.baseline_id,
+                proposed_id=req.proposed_id,
+                is_synthetic=is_synthetic,
+                overall_score=overall_score,
+                walking_distance_change_pct=walking_diff_pct,
+                conflict_score=conflict_score,
+                bottleneck_risk_score=bottleneck_risk_score,
+                space_utilization_score=space_utilization_score,
+                flow_friction_index=flow_friction_index,
+                zone_metrics_json=json.dumps(result.get("zone_comparisons", [])),
+                details_json=json.dumps(result),
+                created_at=time.time()
+            )
+            db.add(sim_record)
+        result["simulation_id"] = sim_id
+        result["persisted"] = True
+    except Exception as e:
+        result["persisted"] = False
+        result["persistence_warning"] = str(e)
+
     return result
+
+
+@router.get("/simulations/history")
+def get_simulation_history(limit: int = 20):
+    """Retrieve persisted What-If simulation history."""
+    try:
+        import json
+        from backend.database.connection import get_db_context
+        from backend.database.models import SimulationResultModel
+
+        with get_db_context() as db:
+            rows = db.query(SimulationResultModel).order_by(SimulationResultModel.created_at.desc()).limit(limit).all()
+            return {
+                "count": len(rows),
+                "history": [
+                    {
+                        "id": r.id,
+                        "baseline_id": r.baseline_id,
+                        "proposed_id": r.proposed_id,
+                        "is_synthetic": r.is_synthetic,
+                        "overall_score": r.overall_score,
+                        "walking_distance_change_pct": r.walking_distance_change_pct,
+                        "flow_friction_index": r.flow_friction_index,
+                        "created_at": r.created_at,
+                        "zone_metrics": json.loads(r.zone_metrics_json or "{}")
+                    }
+                    for r in rows
+                ]
+            }
+    except Exception as e:
+        return {"count": 0, "history": [], "error": str(e)}
+

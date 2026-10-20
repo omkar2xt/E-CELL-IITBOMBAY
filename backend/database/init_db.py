@@ -55,12 +55,20 @@ def init_database():
         db.commit()
         print(f"[Database] Verified {len(default_zones)} default retail zones")
 
-        # 3. Record Audit Log Entry
+        # 3. Seed Default Baseline Layout
+        from backend.database.models import LayoutModel
+        from backend.simulator import layout_store
+        existing_baseline = db.query(LayoutModel).filter(LayoutModel.is_baseline == True).first()
+        if not existing_baseline:
+            layout_store._persist_to_db(layout_store._default_baseline_config())
+            print("[Database] Seeded default store baseline layout into database")
+
+        # 4. Record Audit Log Entry
         audit = AuditLog(
             event_type="SYSTEM_INIT",
             description="Database initialized and verified successfully",
             timestamp=time.time(),
-            details_json=json.dumps({"version": "1.0.0", "storage": "sqlite_wal"})
+            details_json=json.dumps({"version": "1.1.0", "storage": "postgres_ready"})
         )
         db.add(audit)
         db.commit()

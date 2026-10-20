@@ -154,3 +154,53 @@ class AuditLog(Base):
     description = Column(Text, nullable=False)
     timestamp = Column(Float, default=time.time, index=True)
     details_json = Column(Text, nullable=True)
+
+
+class LayoutModel(Base):
+    """What-If store layout configuration."""
+    __tablename__ = "layouts"
+
+    id = Column(String(64), primary_key=True)
+    name = Column(String(128), nullable=False)
+    description = Column(Text, nullable=True)
+    is_baseline = Column(Boolean, default=False, index=True)
+    elements_json = Column(Text, nullable=False, default="[]")
+    zones_json = Column(Text, nullable=False, default="[]")
+    created_at = Column(Float, default=time.time, index=True)
+    updated_at = Column(Float, default=time.time)
+
+
+class SimulationResultModel(Base):
+    """Persisted What-If simulation comparison reports."""
+    __tablename__ = "simulation_results"
+
+    id = Column(String(64), primary_key=True, default=lambda: str(uuid.uuid4()))
+    baseline_id = Column(String(64), nullable=False, index=True)
+    proposed_id = Column(String(64), nullable=False, index=True)
+    is_synthetic = Column(Boolean, default=True, index=True)
+    overall_score = Column(Float, nullable=False)
+    walking_distance_change_pct = Column(Float, nullable=False)
+    conflict_score = Column(Float, nullable=False)
+    bottleneck_risk_score = Column(Float, nullable=False)
+    space_utilization_score = Column(Float, nullable=False)
+    flow_friction_index = Column(Float, nullable=False)
+    zone_metrics_json = Column(Text, nullable=True)
+    details_json = Column(Text, nullable=True)
+    created_at = Column(Float, default=time.time, index=True)
+
+
+class AnalyticsSnapshotModel(Base):
+    """Periodic store-level telemetry snapshot."""
+    __tablename__ = "analytics_snapshots"
+
+    id = Column(String(64), primary_key=True, default=lambda: str(uuid.uuid4()))
+    store_id = Column(String(64), default="store-01", index=True)
+    total_in = Column(Integer, default=0)
+    total_out = Column(Integer, default=0)
+    current_occupancy = Column(Integer, default=0)
+    flow_friction_score = Column(Float, default=0.0)
+    active_dwell_time_avg = Column(Float, default=0.0)
+    zones_data_json = Column(Text, nullable=True)
+    is_demo = Column(Boolean, default=False, index=True)
+    recorded_at = Column(Float, default=time.time, index=True)
+
